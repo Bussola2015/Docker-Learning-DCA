@@ -1,0 +1,1900 @@
+Docker DCA
+
+#Globais
+
+#login opções - existe várias maneiras de logar
+docker login -u 545648841328544  (senha ou PAT) ou echo "dckr_pat_abc123def4567890xyz" | docker login -u meuusuario --password-stdin
+docker login -u ID --password senha
+docker login -> gera um código XKFC-GVHW -> add o código uma página web  e confirma
+
+#para deslogar
+docker logout
+
+#comnados docker mais globais
+docker system info ou docker info    (troubleshooting - overview das configurações do docker completa)
+
+docker system prune ou docker system prune -f  (limpeza de containeres, imagens, redes, volumes cache de build e tudo mais que não tiver sendo utilizados ou não associados a containeres. -f = forçar)
+docker system prune -a
+docker system prune --volumes
+docker system prune --filter "until=168h"
+docker system prune -a --volumes -f (limpeza completa sem confirmação)
+
+docker plugin install <plugin-name> [OPÇÕES]  (plugins são recursos adicionais ao doker engine)
+docker plugin ls
+
+docker search imagem|plugin (procura imagens no docker hub público)  #para descobrir as tags das imagens: curl -s "https://registry.hub.docker.com/v2/repositories/library/rockylinux/tags/?page_size=100" | jq -r '.results[].name'
+
+***************************************************************************************************************************************************************************************************
+
+
+#exemplos gerais
+docker container run --rm -it hello-world
+docker run -d -p 8080:80 --name my_nginx nginx
+docker run -d -p 8080:80 -v /path/on/host:/usr/share/nginx/html --name my_nginx nginx
+docker run -it rockylinux:9 /bin/bash
+docker container run -dit --name rocky9 --hostname c1 rockylinux:9  #outro comando interessante: docker container run -d --name rocky8 --hostname rocky8server rockylinux:8 tail -f /dev/null
+
+****************************************************************************   Container  *************************************************************************************************************
+
+
+#conectar a containeres
+docker container attach rocky9 ou docker container exec -it rocky9 bash ou docker container attach rocky9 ou docker container exec -it rocky9 /bin/bash (tanto faz bash ou /bin/bash)
+#sair de containers
+CTRL+p+r #sair do container sem stopping (Read Escape Sequence) ...  pois se eu sair do container com CTRL+D ou exit eu stopping o container
+
+
+
+OBS:SE EU CRIAR UMA CONTAINER, EXEMPLO: DOCKER CONTAINER RUN -DIT --NAME ROCKY9 --HOSTNAME C1 ROCKYLINUX:9 /BIN/BASH
+E ACESSAR O CONTAINER COM: DOCKER CONTAINER ATTACH ROCKY9
+AO SAIR DO CONTAINER (CTRL+D) O CONTAINER FICA STOPPING. AGORA SE EU ACESSAR O CONTAINER COM: DOCKER CONTAINER EXEC -IT ROCKY9 BASH
+E SAIR COM (CTRL+D), O CONTAINER FICA RUNNING. ASSIM SEMPRE PREFIRA EXEC AO ACESSAR UM CONTAINER INTERO.
+
+
+#exemplos containeres
+docker container ls (ou list) #docker container ps ou docker ps (comandos legados que ainda funcionam)
+docker container ls -a
+docker container ls -a -f "status=exited" (-f de filtrar não forçar) (equivalente ao stop)
+docker container ls -a -f "status=running"
+docker container ls -a -f "status=paused" 
+docker container ls -aq (mostra somente ID dos conteineres)
+
+#iniciar e parar containeres
+docker conatiner stop nome|ID (aceitas vários nomes e IDs)
+docker conatiner start nome|ID
+
+#remover conteineres
+docker container rm nome|ID (aceitas vários nomes e IDs)
+docker container rm -f nome|ID...nomes|IDs
+docker container rm $(docker ps -a -q)  ou docker container rm -f $(docker container ls -aq)
+docker container prune (limpar todos containers parados) com -f nem pergunta
+docker container prune -f
+docker container ls -aq | xargs docker container rm (outra maneira de excluir)
+
+#copiar arquivos para dentro do containeres
+docker container cp teste rocky8:/tmp
+
+#executar dentro de container
+docker container exec rocky8 ls -l /tmp
+docker exec test exec ps -ef (maneira menos legivel, omitindo o nome container no comando)
+
+#investigar conteineres
+docker container logs nome|ID (retorna tipo um history mas com saída dos comandos)
+docker container inspect almalinux (exibi json das configurações e caracteristicas do conteiner)
+docker inspect almalinux | jq '.[] | .Config | {Cmd, Entrypoint}'
+
+
+************************************************************experiencia gambiarra para gerar imagem ********************************************************************************************
+
+
+#experiência gambiarra
+docker container commit rocky rocky-nginx (depois de baixar, executar um docker container exec nome-container dnf install -y nginx (modificando o container), gero uma "imagem-customizada". rocky é o container que eu estou gerando a imagem, a origem, e rocky-nginx é a imagem modificada (instalei o nginx) #gerar imagem de um container (gambiarra)
+
+docker container commit container-origem nova-imagem-apartir-do-container-origem (snapshot de um container - posso tirar uma foto de qualquer container)
+
+docker image ls (check que gerou a imagem)
+docker image save rocky-nginx:latest -o rocky-linux.tar (exporto/salvo a imagem para um .tar, poderia ser img. Mas vamos manter o padrão da comunidade docker .tar oy tgz)
+ocker image save nova-imagem-gerada-commit:latest -o imagem-salva.tar
+
+#removo ambas as imagens, a que eu baixei e a que modifiquei e depois gerei imagem dela.
+docker container rm -f rocky	
+docker image rm rocky-nginx:latest
+
+#carrego a imagei que eu salvei
+docker image load -i rocky-linux.tar
+docker image inspect nome -f "{{ .RootFS}}" ou docker image inspect nome -f "{{json .RootFS}}"
+docker image load -i imagem-salva.tar
+
+
+OBS:
+
+Diferença Crucial: Contêiner vs. Imagem
+É essencial não confundir os dois argumentos:
+
+Contêiner (webserver-dev): É a instância em execução (ou parada) onde as alterações foram feitas. É o objeto de origem.
+
+Imagem (meu-nginx:v1.0): É o novo pacote de camadas (read-only) que foi criado. É o objeto de destino.
+
+Lembre-se: Você está "comitando" (salvando) as alterações de um contêiner em uma nova imagem.
+
+
+#docker container create
+docker container create nome-container
+
+#explicação
+
+docker container create
+O comando docker container create faz exatamente o que o nome sugere: ele cria a camada gravável (o Contêiner) a partir de uma Imagem, mas não o inicia.
+
+O que ele faz:
+
+Baixa a imagem (se necessário).
+
+Cria a estrutura de arquivos (o volume de escrita).
+
+Configura redes, volumes e portas.
+
+Retorna o ID do contêiner.
+
+O que ele NÃO faz:
+
+Não executa o comando principal (ENTRYPOINT / CMD). Para iniciar um contêiner criado com este comando, você precisaria de um segundo comando: docker container start [NOME/ID].
+
+DOCKER CONTAINER CREATE VS DOCKER CONTAINER RUN
+
+docker container run
+O comando docker container run é um atalho que combina os comandos create e start em uma única etapa. É o comando mais usado no dia a dia.
+
+O que ele faz:
+
+Cria o contêiner (como o create).
+
+Inicia o contêiner imediatamente, executando o ENTRYPOINT e o CMD.
+
+Se usado com a flag -d (detached), ele roda em segundo plano.
+
+
+Regra de Ouro:
+Use docker container run (ou docker run) 99% do tempo, pois é a forma mais rápida de colocar algo em funcionamento.
+
+Use docker container create apenas se você tiver uma razão específica para configurar um contêiner e deixá-lo parado antes de iniciá-lo manualmente com docker container start.
+
+********************************************************* Image ************************************************************************************************************************************
+#docker Imagens
+docker image ls  (ou docker images)
+docker images -f "dangling=true" (lista imagens não utilizadas)
+docker image rmi ID|nome  
+docker image rmi -f `docker image ls -a -q ou docker image rmi -f $(docker image ls -a -q)  #rm também funciona no lugar rmi
+docker image prune   (imagens não usadas)
+docker image prune -f 
+docker image prune -a -f
+
+#investiga imagens
+docker image history prom/prometheus:main  (mostra comandos utilizados para criar cada camada da imagem (não é Dockerfile), mas apartir dos comandos, podemos deduzir um Dockerfile)
+docker image inspect prom/prometheus:main
+
+#pesquisar imagens no docker hub publico sem login
+docker search nome-imagem (ex: docker search ubuntu)
+docker search --filter is-official=true nginx
+docker search --filter stars=100 nginx
+docker search --filter is-automated=true nginx
+docker search --limit 5 nginx  (limita a 5 o retorno)
+
+#baixar imagem
+docker image pull imagem:tag  (baixa a imagem do docker hub)
+docker image pull debian  #exemplo baixando imagem Debian
+
+#construir uma imagem apartir do Dockerfile
+docker image build -t echo-container .  (Dockerfile está no mesmo diretório)
+docker image build -t echo-test:latest -f echo-container/Dockerfile .  (-f aponta para o diretório onde está o Dockerfile e demais arquivos que vão entrar no contexto do container - assim qlq arquivo que não precisa na imagem, devem ficar de fora da pasta de contexto para não entrarem na imagem. Claro!, que estamos falando do contexto, dentro da imagem uma maneira é o COPY)
+contexto: arquivos necessários a construção da imagem, artefatos, etc.
+
+#criei outra tag para uma imagem que já tem uma tag
+docker image tag echo-container 545648841328544/echo-container:v1 (mudando o nome de container para enviar para docker hub, pois somente o nome sem o username conflita com imagens oficiais do docker)
+
+docker image push 545648841328544/echo-container:v1   (envia a imagem retaguiada para o dockerhub.com)
+
+time docker image build --no-cache -t exemplo:v2 -f path/Dockerfile context/aqui-está-os-arquivos-de-contexto
+(interesse o uso --no-cache, controi a image do zero sem cache se executarmos pela segunda vez, porque na primeira não vai ter cache mesmo. Observe também que utilizamos dois apontamentos, o do Dockerfile e apontamos o build contexto que queremos enviar para o docker daemon)
+
+time docker image build -t exemplo:v2 -f image/Dockerfile context/ (aproveitamos e medimos o tempo com e sem o cache)
+
+#Dockerfile
+ADD -> igual ao COPY mas aceita URL e altera pernissionamento (ideal para add um git no Dockerfile)
+
+Obs:Geralmente cada comando no dockerfile é uma camada criada no container.
+.dockerignore -> funciona tipo .gitignore, tudo que tiver na pasta de build context (pasta onde encontra o Dockerfile) é enviado para o docker daemon, assim citar os arquivos em .dockerignore evita isso, assim não sobrecarregamos o daemon com arquivos ou artefatos descessários para a criação ou construção da imagem.
+
+Obs: 1)A ORDEM IMPORTA PARA O CACHE, NA CRIAÇÃO DA IMAGEM - isso vale para qualquer cache, tipo REDIS?
+     2) copie o necessário para imagem
+     3) identifique instruções que podem ser agrupadas, pois geralmente cada linha no Dockerfile gera uma camada, e agrupando diminuimos isso
+     4) remova as dependencias desnecessárias
+     5) remover o cache do gerenciador de pacotes: apt e dnf - /var/lib/apt/lists e /var/cache/apt/archives (isso é interno na imagem)
+     6) utilizem imagens oficiais quando possivel
+     7) utilize tags mais especificas. Ex: openjdk. especifica: openjdk:8
+     8) procure flavors minimos. Ex: alpine (musl lbc), slim (debian -> libc), distroless, etc
+     9) Multistage build (utilize sempre que possível)
+
+
+************************************************************************************Volume********************************************************************************************************************
+
+Storage no Linux utiliza sistemas de arquivos altamente modernos, que implementam o conceito de COW (Copy-on-Write - camadas ou layers), Exemplo: btrfs, ZFS, OverlayFS, etc, default OverlayFS ou Overlay2
+
+/etc/docker/daemon.json  - parametrizar o daemon do docker. Esse arquivo não existe ainda, mas se eu quiser por exemplo alterar o Storage, preciso criar daemon.json e configura-lo.
+
+3 tipos de volumes: host(host do daemon - FS), anonimos e nomeado.
+3 tipos de montagem: bind mount (host) ;
+                     volume (FS reservado e gerenciado pelo docker - anonimo e nomeado) ; (s3 da AWS compartilhado com container, usa volume (nomeado ou anonimo))
+                     temporario (tmpfs mount - RAM);
+
+Obs: De preferencia a volumes, evite bind mount (host onde se executa o docker engine). Backup é mais fácil por volume e até mesmo compartilhar entre containeres)
+
+Obs2: -v ou --volume é mais simples. --mount é mais podereso e verboso (precisa de mais detalhes, ex: origem, destino e opções), em cluster somente se utiliza o --mount. Ambos podemos utilizam 3 tipos de montagem e volumes.
+
+docker volume --help
+
+
+
+
+
+#########################docker host
+
+
+-v origem:destino ou --volume source:dest (sintaxe legada - atual é --mount)
+
+#criei um volume host
+docker container run -dit --name servidor -v /srv:/srv debian  (srv não existir, será criado)
+#Check no volume
+docker container exec servidor ls -l /srv
+docker volume ls
+docker container inspect servidor
+
+
+
+#########################docker volume anonimo
+
+#crio volume anonimo (sem origem em comparação com o host)
+docker container run -dit --name servidor -v /vol debian  #omitiu a parte onde fica o host. Mas geralmente está em /var/lib/docker/volumes/<ID> associato ao /vol interno ao container. Gerenciado pelo daemon.
+docker volume ls  (retorna a hash 64 caracteres)
+#verifico a nível de container
+docker container inspect servidor | grep vol
+
+#verifico a nível de volume
+docker volume inspect f5b14bba2fa4662f79a13e4a5aeadb36d5f61c2fe586a9375097ac8c7450f3fe
+
+#mesmo sendo um volume anonimo em /var/lib/docker/volumes/<hash>/_data/arquivo_teste (criei docker container exec servidor touch /vol/teste), fica no disco, mas é gerenciado pelo docker
+docker container inspect servidor | grep vol
+
+saída:
+ "Type": "volume",
+                "Source": "/var/lib/docker/volumes/70036b5ca35798d14ff3242a8beebff856af0fdeef1dfa709b7634eeeb9aba25/_data",
+                "Destination": "/vol",
+                "/vol": {}
+
+Obs:Mesmo sendo gerenciado pelo daemon, podemos enviar arquivo para dentro do container add em _data
+
+
+
+
+
+##############################docker volume nomeado
+
+#crio container nomeado
+docker container run -dti --name servidor -v volume:/vol debian (bem semelhate, mas o detalhe é que é só um nome, não é path, se fosse um path começaria com '/')
+
+#saída do comando, podemos ver o nome ao invés de hash de 64 caracteres
+docker volume ls
+DRIVER    VOLUME NAME
+local     70036b5ca35798d14ff3242a8beebff856af0fdeef1dfa709b7634eeeb9aba25
+local     volume
+
+
+###########volume com --mount podemos criar os 3 tipos também
+
+#volume anônimo 
+docker run --mount type=volume,target=/caminho/no/container minha-imagem  #omitiu o source
+
+#volume nomeado
+docker run --mount type=volume,source=meu-volume-de-dados,target=/caminho/no/container minha-imagem  #não começa '/' sinalizando um path, somente o nome do volume
+docker container run -dit --name servidor2 --mount source=volume2,target=/volume2 debian
+
+#check no json para confirmar
+docker container inspect servidor2 --format '{{json .Mounts}}' | jq  (podemos usar -f = --format)
+
+
+#bind mount ou hosteado
+docker run --mount type=bind,source=/home/user/dados,target=/dados/no/container minha-imagem   #começa '/' mostrando que se trata de um caminho (path), type mudou para bind
+docker run --mount type=bind,source=/home/user/meus-arquivos,target=/dados,readonly meu-app   (somente leitura)
+
+#referencia para mais opções
+docker volume --help
+
+#deleta containers
+docker volume rm $(docker volume ls -q)    ou   docker volume prune -f -a
+
+#exemplo
+docker volume create volume1 (cria um volume nomeado) # default com: docker volume create nome-volume (somente nomeado - gerenciado pelo daemon docker.service)
+docker volume create nome-volume
+
+OBS: DOCKER VOLUME CREATE SÓ CRIA VOLUME NOMEADO, HOST E ANONIMO NÃO É CRIADO COM CREATE (DEFAULT).
+
+############docker volume tmpfs
+
+Obs: tmpfs não pode ser customizado e se utilizado em cluster, somente com --mount typy=tmpfs  (sistema de arquivos virtual ou na RAM ou temporário ou volatil)
+
+#criar container com tmpfs jeito 1 - recomendado e sintaxe atual (moderna)
+docker container run -dit --name tmpfstest1 --mount type=tmpfs,destination=/app debian
+
+docker container inspect tmpfstest1 -f '{{json .Mounts}}' | jq
+[
+  {
+    "Type": "tmpfs",
+    "Source": "",
+    "Destination": "/app",
+    "Mode": "",
+    "RW": true,
+    "Propagation": ""
+  }
+]
+
+
+#criar container com tmpfs jeito 2 - legado
+docker container run -dit --name tmpfstest2 --tmpfs /app debian
+
+docker container inspect tmpfstest2 -f '{{json .HostConfig.Tmpfs}}' | jq
+{
+  "/app": ""
+}
+
+Obs: com mount temos mais informação, sem mount pouca informação.
+
+#criando container com tmpfs com 100M de RAM - com opções
+docker container run -dit --name tmpfstest --mount type=tmpfs,destination=/app,tmpfs-size=100M debian
+#check
+docker container exec tmpfstest df -hT
+
+opções: tmpfs-size (tamanho da RAM) e tmpfs-mode (permissão em octal ex: 0655)
+*********************************************************************************************************************************************************
+
+###backup e restore
+#crio container anonimo
+docker container run -dit -v /webdata --name webserver debian
+
+#copiar para o container
+docker container cp dockerfiles/ webserver:/webdata     (pode ser ao contrário igual cp do Linux em ssh -> docker container cp webserver:/webdata bk)
+
+#verificando se deu certo cp
+docker container exec webserver ls -l /webdata
+
+
+#usando o mesmo volume anonimo de outro container (1 volume 2 containers)
+docker container run -dit -v 9b8bb64641aecce033d52fc46dcecefb36d71d0c7da2b903e95a36ae4ae2c314:/webdata --name server2 debian
+
+#copia o volume de outro container (LINK) - Fazendo o mesmo que comando acima, mas de maneira mais elegante (usando o mesmo volume em outro container)
+docker container run -dit --volumes-from webserver --name volumetest debian
+
+#podemos confirma compartilhamento de volume entre containeres, inspecionando ambos
+docker container exec volumetest ls -l /webdata
+docker container inspect webserver -f '{{json .Mounts}}' | jq
+docker container inspect volumetest -f '{{json .Mounts}}' | jq
+
+#criando um container para backup de um volume de outro containere que depois do backup será destruido, onde faz o backup do webdata em /backup/backup.tar no container alpine (na raiz /backup) que está mapeado no host no path local onde executa esse comando, isto é, em PWD diterório corrente em um volume bind mount (host).
+
+docker container run --rm --volumes-from webserver -v $(pwd):/backup alpine tar cvf /backup/backup.tar /webdata
+
+#esse método acima faz o backup de outro container sem interferir no mesmo, e ainda o container que fez o backup (alpine) faz o backup e já morre. Tudo isso com o outro container em execução, show!!!
+/webdata
+
+#apaga o containere e faz o restore para confirmar se deu bom
+docker container rm -f webserver 
+docker volume rm -f <hash>
+
+#cria o container que vai receber o backup restore
+docker container run -dit -v /webdata --name webserver2 debian
+
+#faz o restore no container webserver2 com um container auxiliar (que faz o restare em outro container e depois já morre)
+docker container run --rm --volumes-from webserver2 -v $(pwd):/backup alpine ash -c "cd /webdata && tar xf /backup/backup.tar --strip 1" 
+#origem --volumes-from webserver2 (volume nomeado ou host - nesse caso nomeado), destino -v $(pwd):/backup (volume bind host)
+#o container webserver2 já estava rodando - veja comando anterior ao imediatamente acima
+
+#check se restore funcionou 
+docker container exec webserver2 ls -l /webdata
+
+
+
+OBS: --volumes-from é lagacy, assim recomenda-se utilizar diretamente o nome utilizado na criação do volume nomeado para criar outro container com o mesmo volume.
+
+
+
+################docker volume plugin
+
+#install vieux/sshfs
+docker plugin install vieux/sshfs # or docker plugin install vieux/sshfs DEBUG=1
+
+#lista os plugins instalados
+docker plugin ls
+
+#crio um volume para teste
+docker volume create volume1
+#já apago o volume
+docker volume ls
+docker volume rm -f volume1
+
+#criar volume em vm remota (com sshd disponivel para conexão por senha). Opções -d de driver e -o de opção
+docker volume create -d vieux/sshfs --name sshvolume -o sshcmd=vagrant@10.2.0.15:/vagrant -o password=vagrant
+
+#crio um container só para ver o que temos na pasta compartilhada via sshfs em sshvolume, e depois esse container morre.
+docker container run --rm -v sshvolume:/data alpine ls -1 /data
+
+
+##plugin trajano/nfs-volume-plugin
+
+#diferente do plugin sshfs que tem escopo local o plugin nfs-volume tem escopo global 
+
+#install plugin - (--grant-all-permissions = -y - para não pergunta/confirmar)
+docker plugin install trajano/nfs-volume-plugin --grant-all-permissions   (maquina client NFS - NFS server é outra VM)
+ou
+docker plugin install --alias nfsvolplug trajano/nfs-volume-plugin --grant-all-permissions --disable
+
+#se precisa desinstalar
+docker plugin rm ID
+
+#create volume no client apontando para o server (ip do server)
+docker volume create -d trajano/nfs-volume-plugin --opt device=192.168.15.4:/home/vagrant/storage --opt nfsopts=hard,proto=tcp,nfsvers=3,intr,nolock volume_nfs
+
+#inspect o volume criado
+docker volume inspect volume_nfs
+
+#testando NFS do server (outra vm) compartilhado nesse container executado na vm cliente com o volume_nfs (criado com nfs-volume-plugin) na VM cliente utilizado como volume nomeado no container \
+#nginx(-v volume_nfs:/usr/share/nginx/html, assim tudo que estiver na pasta /home/vagrant/storage na vm server com nfs-server instalado e configurado, está disponivel nesse container nginx)
+docker container run -dit --name webserver -v volume_nfs:/usr/share/nginx/html/ -p 80:80 nginx
+
+
+######################################################################################### NETWORKING DOCKER #######################################################################################
+
+conceitos:
+
+ - veth -> virtual Ethernet (placa de rede virtual)
+ - bridge -> Ponte (roteamento do host para container)
+ - iptables -> firewall do Linux
+
+Network Drivers:
+  
+ - bridge (default, tradutor entre a rede do host e a rede do docker via interface docker0 e docker-proxy (router para o container - podemos verificar com ps aux | grep docker no host) sem suporte a DNS.
+ - host  -> deixa na mesma rede do host, isto é, não tem mais o isolamento de container no que se refere a rede (network), o resto tem isolamento sim. IP do host é o IP do container (utilize portas p/ distinção).
+ - overlay -> sobrepõe a rede fisica com uma rede virtual que interliga vários containers em diferentes VMs ou hosts físicos (servidores diferentes). Cluster (k8s e Swarm) utilizam essa técnica ou driver de rede overlay; (idéia de outra camada de rede, assim overlay é uma rede lógica e escopo global, pois dockers em diferentes VMs (hosts) pertencentes ao cluster se comunicam e se enxergam normalmente). Escopo Global.
+ - macvlan -> Atrela MAC a containers, desse modo podem trabalhar com vlans no container (rotear tráfego entre containeres com base em MAC).
+ - plugins de drivers de redes -> service mash por exemplo em clusters é mais comum. Em geral vai trazer alguma funcionalidade não nativa a rede docker.
+ - none -> sem rede, container totalmente isolado, sem conexão. (utilizado em alguns casos de uso, por exemplo um build, etc)
+ 
+ 
+referencia: https://www.docker.com/blog/understanding-docker-networking-drivers-use-cases/
+
+
+#criando docker com rede bridge (driver)
+docker container run -dit --name webserver --network bridge -p 80:80 nginx (-p = --publish, utilizando bridge driver) ou docker container run -dit --name webserver -p 80:80 nginx (mesma coisa que o explicito com --network)
+
+docker network ls
+docker network prune 
+docker network prune -f 
+docker network prune --filter until=24h
+docker network inspect bridge | jq
+
+#fluxo de rede modo bridge
+Diagrama de rede do driver bridge: enp0s3:192.168.15.10/24 (host) -> docker-proxy (roteador) com interface docker0 -> veth = interface virtual do container eth0:172.17.0.2/16 (fluxo de bridge da placa física passando pelo docker0 (router) até a placa virtual (veth) no docker eth0)
+
+ 
+#fluxo de rede modo host (driver)
+No modo host driver, não existe a camada de isolamento do bridge (docker proxy com interface docker0), o host e o container estão com o mesmo IP (é parte do host) comunicação direta, mas o resto do isolamento continua, exceto a rede.
+
+#crio um container driver host - mesmo ip da VM - sobe com a porta descrita no Dockerfile (EXPOSE), assim não precisa do --publish (-p) para fazer o bind de porta.
+docker container run -dit --name webserver3 --network host nginx
+
+docker network ls
+docker container inspect webserver3
+docker network inspect ID-de-rede
+docker container logs webserver3 (veificar algum problema porque o docker não subiu. Ex: conflito de porta)
+
+#criando container com driver none
+docker container run -dit --name webserver3 --network none nginx (container sem acesso)
+
+
+OBS:PLUGIN DE REDE E OVERLAY DE REDE SÃO DE ESCOPO GLOBAL
+
+
+#######criando macvlans no docker, exemplo
+
+# Cria uma rede macvlan para a VLAN 10
+# Note: substitua 192.168.10.0/24 pelo seu CIDR e 192.168.10.1 pelo seu gateway
+
+docker network create -d macvlan \
+  --subnet=192.168.10.0/24 \
+  --gateway=192.168.10.1 \
+  -o parent=eth0 \
+  --aux-address="host=192.168.10.254" \
+  vlan10_network
+
+# Cria uma rede macvlan para a VLAN 20
+# Note: substitua 192.168.20.0/24 pelo seu CIDR e 192.168.20.1 pelo seu gateway
+
+docker network create -d macvlan \
+  --subnet=192.168.20.0/24 \
+  --gateway=192.168.20.1 \
+  -o parent=eth0 \
+  --aux-address="host=192.168.20.254" \
+  vlan20_network
+
+# -d de driver
+
+#depois os containeres apontando para as redes macvlan criadas anteriormente
+
+# Sobe um contêiner na VLAN 10
+docker container run -dit --name webserver_vlan10 \
+  --network vlan10_network \
+  nginx
+
+# Sobe um contêiner na VLAN 20
+docker container run -dit --name webserver_vlan20 \
+  --network vlan20_network \
+  nginx
+
+OBS: LEMBRE, REDE BRIDGE NÃO TEM RESOLUÇÃO DE NOMES (DNS) POR DEFAULT.
+
+
+##explicando porque a rede ou driver bridge não permite acesso por nomes por default (resolução de DNS)
+ 
+
+#criando containers bridge network novamente
+docker container run -dit --name container1 -h servidor debian  (-h = --hostname)
+
+docker container run -dit --name container2 -h client debian
+
+#pinga no container, estão na mesma rede e vice-verse, teste com o container2 que vai ser pingado
+docker container exec container1 ping -c4 172.17.0.3
+
+#não resolve IP em bridge, teste para container2 mas sabemos que não vai resolver (não vai ser pingado)
+docker container exec container1 ping -c4 cliente
+
+#PARA RESOLVER O PROBLEMA DRIVER NETWORK BRIDGE, UTILIZAMOS USER-DEFINED BRIDGE OU REDE BRIDGE DEFINIDA PELO USUÁRIO: DNS automatico (resolvemos o problema), melhor isolamento, conecta e desconecta on-the-fly E SÃO CONFIGURAVEIS E CUSTOMIZADAS A NOSSO BEL PRAZER. QUANDO UTILIZAMOS DOCKER COMPOSE É A REDE DEFAULT.
+
+docker network create --driver bridge --subnet 172.20.0.0/16 minha-rede-junior   (criei uma rede bridge --create personalizavel, com subnet e agora essa rede permite acesso por nomes (resolve - DNS))
+48ed6883d57b6b97b2d5b0f7dd6ef2fd33bef3bd092f8615713fba07c94ad538
+
+#outro exemplo
+docker network create rede-exemplo (sem opções)
+
+#o comando acima é um exemplo de rede definida pelo usuário - USER-DEFINED BRIDGE (create é utilizado)
+
+#saída de comando, vemos nossa nova rede
+docker network ls
+NETWORK ID     NAME                DRIVER    SCOPE
+c7b4264b1dc2   bridge              bridge    local
+78a0e65009e7   host                host      local
+48ed6883d57b   minha-rede-junior   bridge    local
+f50978fab3aa   none                null      local
+
+
+
+OBS:nunca resolva problemas de configuração (/etc/hosts, /etc/resolv.conf, etc) dentro do container se podemos resolver fora com recursos do docker, como exemplo acima criando uma rede bridge
+
+OBS: NETWORK OVERLAY É O COMPARTILHAMENTO ENTRE CONTAINERES EM HOSTS DIFERENTES, COMO CLUSTER.
+STORAGE DRIVER OVERLAY UTILIZA O COPY-ON-WRITE PARA CRIAR AS IMAGENS SOMENTE LEITURA SEM REPETIR CAMADAS. (O DRIVER ATUAL É OVERLAY2)
+
+
+
+
+#maneira legacy, depreciada, descontinuada (gambiarra) é utilizar --link (Recomendado - REDE DEFINIDA PELO USUÁRIO COM CREATE (create))
+
+#--link linkei os containeres - "juntei"
+docker container run -dit --name container1 -h servidor debian
+
+docker container run -dit --name container2 --link container1:servidor -h cliente debian
+
+#com link, podemos pingar nom nome do container, mas não é a maneira certa (afinal a opção --link é descontinuada, o certo fazer como fizemos acima com docker network create ...)
+docker container exec container2 ping -c4 container1
+
+
+
+
+
+#Agora utilizando rede definida pelo user, podemos ter o acesso via nome (DNS, plug e desplug da rede com o container em execução, etc). É maneira que se deve colocar em produção
+
+docker container run -dit --name container1 -h servidor --network minha-rede-junior debian
+
+docker container run -dit --name container2 -h cliente --network minha-rede-junior debian
+
+#agora finalmente a maneira correta o DNS funciona
+docker container exec container2 ping servidor
+
+PING servidor (172.20.0.2) 56(84) bytes of data.
+64 bytes from container1.minha-rede-junior (172.20.0.2): icmp_seq=1 ttl=64 time=0.026 ms
+64 bytes from container1.minha-rede-junior (172.20.0.2): icmp_seq=2 ttl=64 time=0.053 ms
+64 bytes from container1.minha-rede-junior (172.20.0.2): icmp_seq=3 ttl=64 time=0.123 ms
+
+#agora funciona também pelo nome do container e acima pelo hostname
+docker container exec container2 ping container1
+
+#on the fly, desconectar o container em execução
+docker network disconnect minha-rede-junior container2
+
+#verifique que sumiu no json
+docker network inspect minha-rede-junior | jq
+
+#não somente voltei a rede no container, como add o ip que quero nele
+docker network connect --ip 172.20.0.200 minha-rede-junior container2
+
+#verifique que voltou no json
+docker network inspect minha-rede-junior | jq
+
+#testando 
+docker container exec container2 ping servidor
+
+
+#ENTENDENDO PORQUE NÃO PODEMOS EDITAR ARQUIVOS NO CONTAINER, POIS TEMOS AS SOLUÇÃO NO PRÓPRIO DOCKER
+
+docker container run -dit --name container1 debian
+
+#check no arquivo
+docker container exec container1 cat /etc/resolv.conf ou docker container exec -it container1 cat /etc/resolv.conf (omitir -it = explicitar -it)
+
+saída de comando:
+
+# Generated by Docker Engine.
+# This file can be edited; Docker Engine will not make further changes once it
+# has been modified.
+
+nameserver 192.168.15.1
+
+# Based on host file: '/etc/resolv.conf' (legacy)
+# Overrides: []
+
+
+
+#alterando o dns nameserver com recursos do docker
+docker container run -dit --name container2 --dns 8.8.8.8 debian
+
+#para mais alternativas de recursos em containers sem utilizar Linux da imagem, só com opções do docker, consulte:
+docker container run --help
+
+#testando
+docker container exec -it container2 cat /etc/resolv.conf
+
+# Generated by Docker Engine.
+# This file can be edited; Docker Engine will not make further changes once it
+# has been modified.
+
+nameserver 8.8.8.8
+
+# Based on host file: '/etc/resolv.conf' (legacy)
+# Overrides: [nameservers]
+
+
+
+#então um container sobe com dns do seu host por default, se quiser mudar permanente
+sudo vim /etc/docker/daemon.json
+
+add:
+
+{
+  "dns": ["8.8.8.8", "8.8.4.4"]
+}
+
+#com isso acima, não pegamos mais por default o dns do host
+
+#systemctl restart docker.service (após mudança no arquivo reinicie o serviço ou daemon)
+
+
+###################################################################### Docker Compose ############################################################################
+
+Instalação: Docker Compose já vem junto com o docker engine que instalamos de maneira manual no Linux.
+docker compose --version ou docker system info
+
+3 passos:
+
+1) define o ambiente com o Dockerfile, para uma melhor reprodução.
+2) define os serviços que serão executados em um arquivo docker-compose.yaml (veremos que podemos mudar o nome depois)
+3) executar o comando docker compose up ou docker compose up -d
+
+
+Refence: https://docs.docker.com/reference/cli/docker/compose/
+
+docker-compose.yml up ou docker compose up -d (cria a infra, mas qualquer mudança no YAML podemos usar o mesmo comando para atualizar/recriar)
+docker compose -f meu-projeto.yaml up -d  (se o arquivo compose tiver nome diferente de docker-compose.yml, utilizamos -f para apontamento)
+docker compose -f meu-projeto.yml down    (dai só removo/destruo o docker compose especifico se tenho mais de um arquivo compose na mesma pasta)
+docker compose -f meu-projeto.yml down -v  (apagar também os volumes. Lembrando que se for  volume host não será apagado nem com -v, somente nomeado)
+docker compose -f meu-projeto.yml down -v -rmi (remove também as imagens)
+
+OBS: -it que utilizamos no docker container run já vem no "docker compose up" por default, se quiser desatachar, precisamos utilizar o -d
+
+OBS:O DOCKER COMPOSE SEMPRE CRIA UMA REDE BRIDGE USER DEFINED POR DEFAULT SEM DEFINIRMOS EXPLICITAMENTE NO ARQUIVO COMPOSE (YAML).
+
+#executa o arquivo docker-compose.yml na pasta
+docker compose up -d  (na pasta que está o Dockerfile (build .) e sem hífen entre o comando docker compose na nova versão do compose, isto é, docker compose e não docker-compose)
+
+#se a imgem estiver sendo construida com Dockerfile, e precisar re-build (reconstruir), posso usar os comandos abaixo. Se não tiver o campo build no compose não precisa do subcomando build
+docker compose build
+docker compose up --build
+docker compose up -d --build
+docker compose -f meu-projeto.yaml build
+
+#check
+docker compose up --help
+docker compose --help
+docker compose down --help
+docker compose pull --help
+
+#apenas baixar as imagens
+docker compose pull
+docker compose -f meu-projeto.yml pull
+
+
+# remove ou destroi tudo criado com docker compose up
+docker compose down
+# remove/destroi tudo até os volumes persistentes com a flag -v
+docker compose down -v
+
+#check logs do compose - de todos os containers
+docker compose logs
+docker compose -f meu-projeto.ymal logs
+docker compose -f docker-compose-v2.yml logs -f (acompanhar em tempo real - semelhante ao tail -f arquivo no Linux)
+
+#para check mais preciso sobre determinado container use
+docker container ls
+docker container nome-container logs -f
+
+
+#check list seus containeres criados e gerenciados pelo compose
+docker compose ps
+docker compose -f meu-projeto.yml ps
+docker compose -f meu-projeto.yml ps -a
+
+#menos completo que o docker compose ps, mas mostra informações também
+docker compose ls
+docker compose -f meu-projeto ls -a
+docker compose -f meu-projeto.yml ps
+
+#para o container
+docker compose stop
+docker compose -f meu-projeto.yml stop
+
+#lista containers 
+docker compose ps
+
+#inicia um container parado
+docker compose start
+
+#escalar containers
+docker compose scale nome-do-serviço=3  (cria 3 containers)
+docker compose -f docker-compose-v3.yml scale webserver=5
+docker compose scale webserver=10
+
+docker compose up -d --scale nome-serviço=x 
+docker compose -f meu-projeto.yml up -d --scale webserver=5
+
+#confirme
+docker compose ps ou docker compose ls ou docker compose -f meu-projeto.yml ps (ou ls)
+
+
+OBS: Para utilizar o scale precisamos deixar o arquivo compose YAML, sem porta, pois ao escalar vai da conflito de porta. O ideal é ter um load balance. Mas se no Dockerfile tem EXPOSE exportando uma porta? Não tem problema, o ruim é no YAML do compose, afinal no Dockerfile existe o expose mas não tem public porta binding (bindanda)
+
+#cria uma rede bridge definida pelo "usuário" (uma rede criada por debaixo dos panos assim: docker network create nome-rede)
+docker network ls
+NETWORK ID     NAME                 DRIVER    SCOPE
+c7b4264b1dc2   bridge               bridge    local
+78a0e65009e7   host                 host      local
+48ed6883d57b   minha-rede-junior    bridge    local
+f50978fab3aa   none                 null      local
+e805e489ebaa   web-server_default   bridge    local criou uma rede (docker network create web-server_default ...)
+
+OBS: docker compose trabalha com services (serviços) e não mais com docker diretamente. O docker está contido no serviço, facilidade, ninguém trabalha com container puro utilizando comandos.
+
+OBS2: docker compose no docker-compose.yml, na linha 'build: .' o nome da imagem é formado pelo no pasta onde está o docker-compose.yml e nome do container (abaixo de services no compose) nome-pasta_nome-do-servico
+
+
+
+
+************************************************************************************ SWARM **************************************************************************************************
+
+SWARM já vem instalado com o docker.
+
+
+NODE - Em um contexto de orquestração de containers (como Docker Swarm ou Kubernetes — K8s), o termo "Node" (ou nó) se refere sim às unidades de hardware ou máquinas virtuais que formam a camada base para executar seus containers.
+O que é um Node?
+Em termos simples, um Node é um computador de trabalho que faz parte do cluster. Sua função é fornecer os recursos (CPU, RAM, disco e rede) necessários para que o software de orquestração (Docker ou K8s) possa agendar e executar containers.
+
+NODE = computador (fonte de recursos)
+
+NODES podem ser MASTER ou SLAVE (k8s -> Control Plane Node e Worker Node e Swarm -> Manager Node e Worker Node) tem outros termos para isso também: Leader e follow, etc
+
+Para ser o Main/Manager/Leader precisa haver uma escolha, essa escolha acontece por meio de um protocolo que utiliza um algoritmo Raft Consensus para determinar o MASTER. Os links abaixo mostram 
+em detalhes e explicam esse algoritmo e até simulam. Muito legal e interessante. No fim é para garantir a consistência de estado do cluster.
+
+
+JANGADA = 3 TORAS DE MADEIRA   (estamos falando apenas dos nodes masters/managers)
+
+RAFT - TOLERA ATÉ (N-1)/2 FALHAS nos managers
+     - QUORUM DE (N/2)+1 (minimo) nos managers
+     
+ N=1, N=2, N=3, N=4, N=5 , ...
+     
+     
+     
+     
+OBS: O PROBLEMA DO SPLIT BRAIN (celebro partido). 
+
+
+
+https://raft.github.io/
+
+https://thesecretlivesofdata.com/raft/
+
+
+
+
+Dica: Geralmente em k8s pure trabalhar com 3 ou 5 no máx de Nodes masters, raramente precisamos mais do que isso (talvez uma exceção um black friday) (1,3,5,7,9,etc nunca pares)
+
+#Cenário do curso DCA para Swarm é 1 manager e duas workers. Poderia ser 3 managers, sim poderia, mas não seria um cenáio real. A única diferença para um node work e manager, ambos podem conter containers mas só os managers podem gerenciar o cluster.
+
+#inicializa o cluster Swarm e gera um comando para add nodes works. Diz ao mundo que maquina onde roda o container agora é um node manager e para os nodes workers me encontrar é só acessar o IP. (IP vai ser uasado na rede overlay) - Sempre IP, recomendação, não confiar na resolução de nomes, pois se falhar o cluster para.
+docker swarm init --advertise-addr IP-da-VM-master
+docker swarm init --advertise-addr 192.168.15.100
+
+#se precisar rever o comando para add mais nodes masters depois, o comando abaixo gera o token para manager (tipo um link para entrar no cluster - convite)
+docker swarm join-token manager
+
+#se precisar rever o comando para add mais nodes works depois, o comando abaixo gera o token para worker
+docker swarm join-token worker
+
+#Para add mais managers ou works, depende de qual join-token manager ou worker utilizamos (comandos acima) para gerar os tokens. É assim add novos computadores/VM para nosso cluster (novos nodes).
+docker swarm join --token SWMTKN-12232j4h3h43kjh4... IP-da-VM-master:porta
+
+
+#mostra os nodes do cluster swarm. Obs: esse comando só podemos utilizar nos nodes managers, em node works vai gerar um aviso que este node é worker e não manager e não funciona.
+docker node ls
+
+#promover um node worker a manager
+docker node promote nome-do-hostname-node|ID
+
+#assistindo em tempo real
+watch docker node ls
+
+#despromover
+docker node demote nome-do-hostname-node|ID
+
+#check para confirmar
+docker node ls
+
+----------------------------------------------------------------------------------
+
+SERVICES = serviço = estado desejado (meta)
+TASKS    = tarefa  = partes para efetuarmos para chegar no estado desejado. Ex: Preciso realizar 4 tarefas para conseguir criar um serviço.
+
+
+
+#Conceito de service e task é primordial para o entendimento de qualquer cluster.
+
+SERVICE (NODE MANAGER) -> TASK (NODE WORKER) -> 1 OU MAIS CONTAINER (CLARO QUE SE EU TIVER APENAS UM CONTAINER QUE SATISFAZ O SERVICE TEM TASK QUE NÃO VAI TER CONTAINER (NODE VAZIO))
+                          TASK (NODE WORKER) -> 1 OU MAIS CONTAINER (normalmente tem 1 container por task)
+                          TASK (NODE WORKER) -> 1 OU MAIS CONTAINER
+
+
+                          STATES DA TASK = NEW, PENDING, ASSIGNED, ACCEPTED, REJECTED, FAILED, RUNNING, COMPLETE, SHUTDOWN, ORPHANED, PREPARING, STARTING, REMOVE
+			  Reference:https://docs.docker.com/engine/swarm/how-swarm-mode-works/swarm-task-states/
+
+ciclo de estado corriqueiro da task: assigned -> prepared -> running
+
+Definção de task: unidade atomica agendada em um swarm
+
+SERVICES REPLICADOS x SERVICES GLOBAIS
+
+replicados: roda uma quantidade determinada de nós (não vai estar rodando em todos os nós)
+Global: roda em todo nó do cluster (roda em todos os nós - inclusive no manager)
+
+Quando eu preciso de serviço global? Agentes do Prometheus por exemplo, uma aplicação de scanner de segurança geral no cluster, ou qualquer serviço que geralmente precise de gerencia, etc
+Lembrando, service global tem um container 
+
+Quando preciso de serviço replicado? Geralmente uma aplicação convencional
+
+Ex:Prometheus server, pode por exemplo fica no nó (node) manager/master onde sei que vai está sempre on-line.
+
+
+
+############# DEFINIÇÂO E RESUMO DE SERVIÇOS GLOBAIS E REPLICANTES
+
+1. Serviço Replicado (Replicated Service)
+O Serviço Replicado é o tipo padrão e mais comum de serviço no Docker Swarm.
+
+O que é?
+É um serviço onde você define explicitamente o número de réplicas (cópias) que deseja rodar no cluster. O Swarm Manager garante que esse número exato de Tarefas (contêineres) esteja sempre ativo.
+
+Como Funciona?
+Escala Definida: Você diz: "Eu quero 5 cópias do meu web-app."
+
+Agendamento: O Swarm Manager distribui essas 5 Tarefas pelos nós disponíveis (Workers).
+
+Gerenciamento: Se um nó falhar, ou uma Tarefa morrer, o Manager reagenda a Tarefa perdida em um nó saudável para manter o número total de 5 réplicas.
+
+Quando Usar?
+Aplicações Web: Para balanceamento de carga (load balancing) de APIs, sites e front-ends.
+
+Processamento Assíncrono: Filas de trabalho que podem ser distribuídas entre um número fixo de trabalhadores.
+
+Maioria dos Casos: É a escolha ideal para qualquer aplicação que precise de alta disponibilidade e escalabilidade controlada.
+
+
+2. Serviço Global (Global Service)
+O Serviço Global segue um modelo de "um por nó".
+
+O que é?
+É um serviço onde você não define o número de réplicas. Em vez disso, o Swarm Manager garante que exatamente uma Tarefa (contêiner) do serviço rode em cada nó disponível do Swarm.
+
+Como Funciona?
+Escala Dinâmica: O número de Tarefas é sempre igual ao número de nós no cluster (ou nós que satisfazem as restrições do serviço).
+
+Agendamento: Quando você adiciona um novo nó ao Swarm, o Manager automaticamente inicia uma Tarefa do Serviço Global nesse novo nó.
+
+Gerenciamento: Se um nó falhar, sua Tarefa morre com ele. Se ele voltar, a Tarefa é reiniciada.
+
+Quando Usar?
+Monitoramento e Logs: Agentes de coleta de logs (como Fluentd, Logstash) ou agentes de monitoramento (como Node Exporter, Datadog Agent) que precisam coletar dados de todos os nós.
+
+Segurança: Agentes de segurança que precisam ser executados em cada máquina.
+
+Infraestrutura: Tarefas de manutenção ou daemon que são necessárias para a operação de cada máquina (Node).
+
+Resumindo, serviços replidos e globais são tipos de deploy (implantação).
+
+
+exemplos:
+
+docker service create --name minha-api --replicas 5 nginx
+# O Swarm vai rodar 5 contêineres do Nginx no cluster. Serviço replicado.
+
+docker service create --name agente-log --mode global minha/log-collector
+# O Swarm rodará 1 contêiner de log-collector em CADA nó do cluster. Serviço global
+
+
+No nosso cenário de estudo, vamos utilizar um registry não seguro, assim precisamos configurar nosso /etc/docker/daemon.json
+
+{
+
+	"insecure-registries": ["nome-do-host-ou-node-register-ou-IP:PORTA"]   (nome de host é melhor e mais recomendada, mas aceita IP sim)
+}
+
+systemctl restart docker 
+
+
+OBS: PRECISAMOS FAZER ISSO EM TODOS OS NODES PARA SABERMOS ONDE ESTÁ O REGISTER. NA VERDADE, QUALQUER ALTERAÇÃO NO /ETC/DOCKER/DAEMON.JSON (QUE NUNCA VEM POR DEFAULT COM A INSTALAÇÃO DO DOCKER, PRECISAMOS CRIAR O ARQUIVO) PRECISA SER REPLICADA EM TODAS AS VMS/COMPUTADORES OU NODES PERTENCENTES AO CLUSTER PARA TODOS ESTAREM REPLETINDO A MESMA CONFIGURAÇÃO.
+
+
+#criando o container na VM register versão 2 no node do register (na 4 VM do lab)
+docker container run -dit --name register -p 5000:5000 register:2
+
+#os comandos abaixo foram executados na VM register ou node worker onde será definado o registry
+
+docker image ls
+
+docker image pull alpine
+
+#tag na imagem para enviar ao register - renome na imagem alpine para register.docker-dca.exemple:5000/alpine - https://hub.docker.com/_/registry
+docker image tag alpine register.docker-dca.exemple:5000/alpine
+
+#enviei a imagem ao registry 
+docker image push register.docker-dca.exemple:5000/alpine:latest
+
+OBS: O CONTAINER REGISTRY TEM API, E PODEMOS ACESSA-LA ATRAVES DE CURL. SE TIVESSE SSL COM HTTPS, TERIAMOS QUE PASSAR UM BEARER TOKEN NA URL. ASSIM PODEMOS VERIFICAR AS IMAGENS CRIADAS E SUAS VERSOES NO REPO.
+
+#acesso a API do container register:v2 check confirmação de push de imagem (afinal, register container não tem front como as clouds ex: ACR)
+curl -s http://register.docker-dca.example:5000/v2/_catalog | jq
+saída:(json)
+{"repositories":["alpine"]}
+
+
+#criar script para baixar as imagens:nginx, mysql, wordpress, docker-supermario e traefik e depois envia-las ao nosso registry utilizando os comandos acima. Mas se quiser pode fazer manual como os comandos acima que fizemos com a imagem alpine.
+
+
+#mas o comando curl para acessar a API do registry não mostra as tags, problema resolvido. (trocar _catalog por nome-da-imagem/tags/list)
+curl -s http://register.docker-dca.example:5000/v2/mysql/tags/list | jq
+curl -s http://register.docker-dca.example:5000/v2/nome-da-imagem/tags/list | jq
+
+#mais um exemplo
+curl -s http://register.docker-dca.example:5000/v2/traefik/tags/list | jq
+
+#help
+docker service --help
+
+#criando serviço no swarm (implicito --replicas 1)
+docker service create --name webserver registry.docker-dca.example:5000/nginx
+
+#check
+docker service ls
+
+#informações do serviço
+docker service ps webserver
+
+#add/habilitando porta no container contido na task (sequancial acima de 30000 a porta fora do container - dentro do container pelo comando abaixo é a porta 80)
+docker service update --publish-add 80 webserver
+
+OBS: O node que contém o container do nginx é o node02.docker-dca.example:30000, mas como estamos numa rede overlay, qualquer node (inclusive o manager) com a porta 30000 eu acesso o nginx. Ex: 
+node01.docker-dca.example:30000
+node02.docker-dca.example:30000
+master.docker-dca.example:30000
+registry.docker-dca.example:30000
+
+#TODAS AS URLS ACIMA NO NAVEGADOR OU CURL RETORNAM PÁGINA DEFAULT DO NGINX. INTERESSANTE!!!!!
+
+
+#testando com curl
+curl -v http://node01.docker-dca.example:30000
+curl -v http://node02.docker-dca.example:30000
+curl -v http://master.docker-dca.example:30000
+
+#check network para confirmar o overlay no cluster
+docker network ls
+
+#check no iptables também as entradas no docker ingress
+sudo iptables -nL
+
+#check mais a fundo
+docker service inspect webserver
+docker service inspect webserver | jq   (endpoint mode = vip (virtual IP))
+docker service inspect webserver --pretty
+docker service inspect nome-service
+
+
+#remover o service
+docker service rm webserver
+
+#confirma se removeu
+docker service ls
+
+#crinado um serviço novo no swarm
+docker service create --name pingtest registry.docker-dca.example:5000/alpine ping google.com
+
+-------------------------------------------------
+OBS:
+O Comando e a Regra do Swarm
+Quando você usa o comando:
+
+Bash
+
+docker service create --name pingtest alpine ping google.com
+Você está criando um Serviço Replicado (o padrão) com uma única Tarefa (contêiner) que executa o ping. Você pode escalá-lo sem problemas:
+
+Bash
+
+docker service scale pingtest=5
+Isso funciona perfeitamente, pois o contêiner não está expondo nenhuma porta de rede que precise ser acessada externamente.
+
+Onde Está a Restrição: Exposição de Portas
+A restrição que você mencionou só acontece quando você tenta usar o modo de rede do Docker Swarm chamado "host mode" para a publicação de portas.
+
+1. Publicação de Porta (Modo Padrão: Roteada)
+Se você publicar a porta usando o modo padrão (overlay network), você PODE escalar:
+
+Bash
+
+docker service create --name webapp -p 8080:80 --replicas 3 nginx
+Como funciona: O Swarm usa sua rede overlay e o Routing Mesh (Ingress). O Swarm garante que a porta 8080 de todos os nós do cluster roteie o tráfego para uma das 3 cópias do Nginx, independentemente de onde elas estejam rodando. Assim não conplito de porta como quando subiamos um container em um único host, que no cluster não existe essa limitação com a rede mesh em baixo dos panos.
+
+Conclusão: Funciona perfeitamente e é o método recomendado para escalar.
+
+2. Publicação de Porta (Modo Host)
+A restrição ocorre se você usar a flag --publish mode=host:
+
+Bash
+
+docker service create --name hostapp --publish published=80,target=80,mode=host --replicas 3 nginx
+Como funciona: Este modo diz: "Publique a porta 80 do contêiner diretamente na interface de rede do host." O contêiner usa a pilha de rede do host.
+
+O Problema: Como o contêiner está diretamente ligado à porta 80 do sistema operacional do nó, você só pode ter UMA Tarefa desse serviço naquele nó. Se você tentar criar a segunda cópia no mesmo nó, ela falhará com um erro de "Address already in use" (Endereço já em uso).
+
+Conclusão: Você pode escalar, mas o Swarm será forçado a rodar cada réplica em um nó diferente. Se você tiver 5 nós e pedir 6 réplicas, a sexta réplica ficará no estado Pending ou Rejected (Pendente/Rejeitada) porque não há um nó livre para executá-la.
+
+Resposta Direta
+Você pode escalar seu contêiner (Serviço) a menos que você o force a usar o modo de rede mode=host ao publicar uma porta. A rede default (overlay) não tem problemas em publicar portas.
+
+Resumo para mode=host
+
+Cenários de Falha:
+
+Cenário do Cluster	Resultado da Tentativa de Criação do Serviço
+Apenas 1 nó no Swarm	1 réplica é iniciada. As outras 2 réplicas falham com um erro de conflito de porta (bind: address already in use) quando tentam vincular a porta 80.
+2 nós no Swarm	2 réplicas são iniciadas (uma em cada nó). A 3ª réplica falha, pois o Swarm não consegue encontrar um 3º nó que ainda não esteja usando a porta 80.
+3 ou mais nós no Swarm	O Swarm consegue iniciar 3 réplicas, espalhando uma réplica em cada um dos 3 nós, evitando o conflito de porta. Mas se você tentar escalar para 4 réplicas (webapp=4), a 4ª falhará.
+
+REPETINDO, SE NÃO UTILIZAMOS O MODE=HOST, NÃO HÁ LIMITAÇÃO DE PORTA SE DEFINIMOS PORTA_HOST:PORTA_CONTAINER NO COMANDO SERVICE EM CENÁRIO DE CLUSTER. FORA DO SWARM EM UM UNICO HOST TEREMOS PROBLEMA EM ESCALAR O CONTAINER.
+SE UTILIZARMOS O MODE=HOST O NUMERO DE PORTAS NO HOST SERÁ LIMITADO AOS NUMEROS DE NODES
+--------------------------------------------------
+docker service ls
+
+docker service ps pingtest
+
+#ver logs
+docker service logs pingtest
+docker service logs -f pingtest
+
+#repliquei os containers (escalando - posso aumentar e diminuir sem problemas)
+docker service scale pingtest=3 ou docker service update --replicas 3 pingtest
+
+#consigo atualizar outras config. ex:imagem, porta, labels, etc)
+docker service update --replicas 10 nome-do-serviço
+
+docker service ls
+
+docker service inspect nome-service
+
+docker service logs -f pingtest
+
+OBS:O Swarm não escala automaticamente como K8s (baseado em métricas), precisa ser na mão (no comando mesmo). Isso porque estamos falando nativamente do Swarm, se tem alguma ferramenta que hoje escala automaticamente já não sei.
+
+#verificando por node as task criadas (tasks contém containers)
+docker service ps master.docker-dca.example
+
+#removendo o serviço
+docker service rm pingtest
+
+OBS:LEMBRANDO QUE TODOS OS COMANDOS DOCKER SERVICE ... (ALGUMA COISA) É SOMENTE EXECUTADO NO NÓ OU NOS NÓS MASTER(S)
+
+
+Cenário: Preciso por exemplo, fazer uma manutenção no hardware de um servidor ou computador (ou até um upgrade de VM) em uma máquina que está sendo utiliza pelo cluster Swarm como um Node (nó). Desligar a VM não é um solução prática, mesmo que o Swarm realoque o serviço, pois isso gera downtime. O recomendado é utilizar o comando abaixo:
+Do modo do comando abaixo, não há downtime, há um redirecionamento.
+
+#drenando o nó
+docker node update node01.docker-dca.example --availability drain
+
+docker node update nome-do-node-hostname --availability drain  (hostanme ou ID)
+
+docker node ls
+
+docker service ps pingtest
+
+docker node inspect node-hostname|ID
+docker node inspect node01.docker-dca.example | jq
+docker node inspect --pretty node01.docker-dca.example
+
+#voltando da drenagem
+docker node update nome-do-node-hostname --availability active
+
+docker node ls
+
+docker service inspect --pretty pingtest
+docker service inspect --pretty nome-do-serviço
+
+docker service rm pingtest
+docker service ls
+
+#check os secrets
+docker secret ls
+
+#criar secret (dados confidenciais para o cluster) - Como é um input não pode ser como o comando abaixo
+docker secret create nome-secret (input)
+
+#recomendado - '-' significa leia a entrada
+echo "senha" | docker secret create senha_db - 
+
+OBS: Tem outras maneiras para criar a secret, como por exemplo um arquivo.
+
+docker secret ls
+
+#check no conteudo do secret de nome senha_db
+docker secret inspect --pretty senha_db
+docker secret inspect --pretty nome-do-secret
+
+OBS: Onde armazenamos o secret: /run/secrets/senha_db (no tmpfs do systemd no Linux)
+
+#cria serviço mysql server com secret - secret é montado dentro do container em /run/secrets/senha_db
+docker service create --name mysql_database --publish 3306:3306/tcp --secret senha_db -e MYSQL_ROOT_PASSWORD_FILE=/run/secrets/senha_db registry.docker-dca.example:5000/mysql:5.7
+
+#install mariadb-client
+sudo apt-get install mariadb-client -y >/dev/null 2>&1
+mysql -h node01.docker-dca.example -u root -psenha
+
+#check dentro do container
+vagrante ssh node01
+docker contaoner ls
+docker container exec -it nome-do-mysql cat /run/secrets/senha_db
+
+#removendo serviço
+docker service rm mysql_database
+
+#check network
+docker network ls
+
+#criando uma rede overlay do swarm
+docker network create -d overlay nome-da-rede
+docker network create -d overlay dca-overlay
+
+docker network inspect dca-overlay
+
+docker service create --name webserver --publish target=80,published=80 --network dca-overlay registry.docker-dca.example:5000/nginx
+
+docker service ps webserver
+
+OBS: criamos a rede dca-overlay no node master, e essa rede será replica para os demais nodes do cluster. Assim podemos executar o nginx de qualquer node (navegador ou curl) que acessaremos, mesmo em node que não executa o container do nginx.
+
+docker service rm webserver
+
+#refazer o as configurações e cenário da aula de plugin de volume NFS
+#install NFS server na VM master, nas demais NFS client. Depois volume NFS plugin do docker em todas as VMs (Nodes) que compoe o cluster. E finalmente crie o volume do tipo nfs (plugin) com as seguintes 
+#configurações da aula de volume plugin do DCA.
+
+OBS: Na node master executaremos tudo, só executamos nas demais (node workes) cliente NFS e docker plugin.
+
+docker service create --name webserver --replicas 3 --publish 80:80 --network dca-overlay --mount source=volume_nfs,target=/usr/share/nginx/html regitry.docker-dca.example:5000/nginx
+
+docker service ps webserver
+
+#Não trunca a saída assim podemos ver erros e outras mensagens
+docker service ps webserver --no-trunc
+
+docker service rm webserver
+
+#criando a primeira stack no Swarm
+mkdir ~/stack
+cd stack
+
+vim webserver.yml #diferente do compose que tem nomenclatura 'build:' para construir imagem apartir do Dockerfile, no Swarm isso não existe, apenas a nomenclatura 'image:' porque o Swarm só trabalha com   registry. (Os nodes são apenas para executar container)
+A nomenclatura "deploy:" está implicita aqui (abaixo), fazendo uma única replica do nginx abaixo. Para adicionar mais réplicas, precisa da clausula/nomenclatura 'deploy:'
+-----------------------------------------------------------------
+version: '3.9'
+
+services:
+  webserver:
+    image: registry.docker-dca.example:5000/nginx
+    hostname: webserver
+    ports:
+      - 80:80
+-----------------------------------------------------------------
+#criando a stack para deploy no Swarm
+docker stack deploy --compose-file webserver.yml webserver-nginx  (--compose-file = -c)
+docker stack deploy -c arquivo.yml nome-da-stack-swarm   (o arquivo.yml continua sendo um docker compose idêntico) 
+
+#check
+docker stack ls
+
+#informações semelhante ao docker service ps nome-service
+docker stack services webserver-nginx
+ou
+docker stack ps webserver-nginx
+
+#nova stack (modificada)
+----------------------------------------------------------------
+version: '3.9'
+
+services:
+  webserver:
+    image: registry.docker-dca.example:5000/nginx
+    hostname: webserver
+    ports:
+      - 80:80
+    deploy:
+      replicas: 2
+      restart_policy: on-failure
+      
+-----------------------------------------------------------------
+#como não mudamos o nome da stack o Swarm atualizará o que já está no cluster
+docker stack deploy -c webserver.yml webserver-nginx
+
+
+----------------------------------------------------------------
+version: '3.9'
+
+services:
+  webserver:
+    image: registry.docker-dca.example:5000/nginx
+    hostname: webserver
+    ports:
+      - 80:80
+    deploy:
+      mode: global  #mudei aqui
+      restart_policy: on-failure
+      
+-----------------------------------------------------------------
+
+#novamente e vai dar erro, pois ele não vai conseguir atualizar
+docker stack deploy -c webserver.yml webserver-nginx
+
+docker service rm webserver-nginx_webserver
+
+#depois de destruir podemos fazer novamente o deploy que vai dar certo
+docker stack deploy -c webserver.yml webserver-nginx
+
+#vamos perceber que vai ter 4 replicas pois temos 4 nodes
+docker stack services webserver-nginx
+
+docker service rm webserver-nginx ( o correto é: docker stack rm nome-da-stack )
+
+docker stack rm webserver-nginx (correto e recomendado)
+
+docker stack ls
+
+#modificação novamente
+
+----------------------------------------------------------------
+version: '3.9'
+
+services:
+  webserver:
+    image: registry.docker-dca.example:5000/nginx
+    hostname: webserver
+    ports:
+      - 80:80
+    deploy:
+      mode: replicated    #default se omitido
+      replicas:4
+      placement:
+        contraints: #especifica em quais node executar
+          - node.role==manager  #worker
+      restart_policy:
+        condition: on-failure
+      
+-----------------------------------------------------------------
+
+
+docker stack deploy -c webserver.yml nginx-webserver
+
+#check
+docker stack services nginx-webserver
+
+#check
+docker stack ps nginx-webserver
+
+docker service inspect nginx-webserver_webserver --pretty
+
+docker stack deploy --help
+
+docker node ls
+
+docker node inspect --pretty master.docker-dca.example
+
+#add label
+docker node update --label-add os=ubuntu18.04 node01.docker-dca.example
+
+#check a label
+docker node inspect --pretty master.docker-dca.example
+
+3exemplos de labels
+docker node update --label-add disk=ssd node01.docker-dca.example
+docker node update --label-add chave=valor node01.docker-dca.example
+docker node update --label-add location=us-east-1 node01.docker-dca.example
+
+#modificação novamente
+
+----------------------------------------------------------------
+version: '3.9'
+
+services:
+  webserver:
+    image: registry.docker-dca.example:5000/nginx
+    hostname: webserver
+    ports:
+      - 80:80
+    deploy:
+      mode: replicated    #default se omitido
+      replicas:4
+      placement:
+        contraints: 
+          - node.role==worker
+          - node.labels.os==ubuntu18.04
+          - node.labels.location==us-east-1    #poder diferente !=
+      restart_policy:
+        condition: on-failure
+      
+-----------------------------------------------------------------
+
+#com add de labels posso controlar melhor onde quero o deploy, e isso ajuda muito em CI/CD (esspecifica melhor)
+
+docker service rm nginx-webserver
+
+docker stack deploy -c webserver.yml nginx-webserver
+
+#check
+docker stack services nginx-webserver
+
+#check
+docker stack ps nginx-webserver
+
+docker service rm nginx-webserver
+
+
+vim wordpress.yml
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#version: '3.9'    
+name: ProjWordpressSwarm
+
+volumes:
+  mysql_db:  
+
+networks:
+  wp_overlay:
+
+services: 
+  wordpress:  
+    image: registry.docker-dca.example:5000/nginx  
+    ports: 
+      - 8080:80
+    restart: always 
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser 
+      WORDPRESS_DB_PASSWORD: 12345678
+      WORDPRESS_DB_NAME: wordpress 
+    
+    networks:
+      - wp_overlay
+      
+    deploy:
+      mode: replicated
+      replicas: 2 
+      restart_policy:
+        condition: on-failure
+      resources:
+        limits:
+          cpus: "1"
+          memory: 60M
+        reservations:
+          cpus: '0.5'
+          memory: 30M
+        
+
+  db:
+    image: registry.docker-dca.example:5000/mysql
+    volumes:
+      - mysql_db:/var/lib/mysql
+    environment:
+      MYSQL_DATABASE: wordpress 
+      MYSQL_USER: wpuser 
+      MYSQL_PASSWORD: 12345678 
+      MYSQL_RANDOM_ROOT_PASSWORD: '1' 
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role==manager
+      restart_policy:
+        condition: on-failure
+    networks:
+      - wp_overlay:
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+#criou wordpress com base no file stack (docker compose) no Swarm
+docker stack deploy -c wordpress.yml wordpress-stack
+
+docker stack services wordpress-stack
+
+docker stack ps wordpress-stack
+
+
+#comando ULTRA importante que mostra utilização de recursos pelo container - executado na node01 para verificação - tipo um top do Linux
+docker stats
+
+
+#conjunto de ferramentas do apache - uma em especial vamos utilizar AB (apache benchmark)
+apt-get install apache2-utils -y
+
+#teste de carga - Existe ferramentas melhores como k6 e apache Jmeter
+ab -n 10000 -c 100 http://master.docker-dca.example:8080/    (100 requisições concorrentes e 10000 tentativas de conexão)
+
+OBS: Swarm não tem autoscale como HPA do k8s, precisa subir na mão no Swarm.
+
+docker service scale wordpress-stack_wordpress=6
+
+docker stack rm wordpress-stack
+
+
+
+DICA: Sempre que possível entenda do seriço/ferramenta em VM/baremetal para depois levar para o container, é uma boa pŕatica.
+
+
+Tipo de Rede	Driver	Escopo	Propósito
+ingress	overlay	Global (todo o Swarm)	Balanceamento de Carga para serviços expostos.
+custom overlay	overlay	Global (todo o Swarm)	Comunicação interna segura entre serviços.
+bridge	bridge	Local (apenas um nó)	Comunicação entre contêineres no mesmo nó.
+
+
+
+---------------------------------------------------------------------------- MONITORAMENTO ----------------------------------------------------------------------------------------
+
+#stack file
+
+version: '3.9'
+
+volumes:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  monitoring:
+
+services:
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+    ports:
+      - 8080:8080
+    networks:
+      - monitoring
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      -9090:9090
+    depends_on:
+      - cadvisor
+    networks:
+      - monitoring
+    deploy:
+      placement:
+        constraints:
+          - node.role==manager
+        restart_policy:
+          condition: on-failure
+    
+  node-exporter:
+    image: prom/node-exporter
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    ports:
+      - 9100:9100
+    networks:
+      - monitoring
+    deploy:
+      mode: global
+      restart_policy:
+        condition: on-failure
+
+  grafana:
+    image: grafana/grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - 3000:3000
+    depends_on:
+      - prometheus
+    networks:
+      - monitoring
+    user: "472"   #user ID
+    deploy:
+      placement:
+        constraints:
+          - node.role==manager
+        restart_policy:
+          condition: on-failure
+
+
+
+
+docker stack deploy -c monitoring.yml monitoring
+
+docker node ls
+
+docker stack ls
+
+docker stack ps monitoring
+
+
+
+-------------------------------------------------------------- TOOLS DOCKER -------------------------------------------------------------------------
+
+Swarmpit é uma ferramenta de interface gráfica de usuário (UI) leve e amigável para gerenciamento de clusters Docker Swarm.
+Trás GUI para gerenciamento e monitoramento do cluster, tipo um Lens do K8s.
+
+docker-compose.yml - do Swarmpit
+
+version: '3.3'
+
+services:
+  app:
+    image: swarmpit/swarmpit:latest
+    environment:
+      - SWARMPIT_DB=http://db:5984
+      - SWARMPIT_INFLUXDB=http://influxdb:8086
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - 888:8080
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+    networks:
+      - net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 1024M
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+      placement:
+        constraints:
+          - node.role == manager
+
+  db:
+    image: couchdb:2.3.0
+    volumes:
+      - db-data:/opt/couchdb/data
+    networks:
+      - net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.30'
+          memory: 256M
+        reservations:
+          cpus: '0.15'
+          memory: 128M
+
+  influxdb:
+    image: influxdb:1.8
+    volumes:
+      - influx-data:/var/lib/influxdb
+    networks:
+      - net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.60'
+          memory: 512M
+        reservations:
+          cpus: '0.30'
+          memory: 128M
+
+  agent:
+    image: swarmpit/agent:latest
+    environment:
+      - DOCKER_API_VERSION=1.35
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - net
+    deploy:
+      mode: global
+      labels:
+        swarmpit.agent: 'true'
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 64M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+
+networks:
+  net:
+    driver: overlay
+
+volumes:
+  db-data:
+    driver: local
+  influx-data:
+    driver: local
+    
+    
+###########################################
+
+#usando o compose acima
+docker stack deploy -c docker-compose.yml swarmpit
+
+docker stack ls
+
+docker stack ps swarmpit
+
+#ver o status
+docker service ls
+
+
+
+##########################################
+
+Portainer é uma ferramenta de gerenciamento de contêineres com uma interface gráfica de usuário (GUI) intuitiva e leve.
+
+Em essência, ele atua como um painel de controle centralizado que simplifica a implantação, o gerenciamento e a operação de ambientes baseados em contêineres, como:
+
+Docker Standalone (em um único host).
+
+Docker Swarm (clusters de contêineres).
+
+Kubernetes (o orquestrador mais complexo).
+
+Podman.
+
+OBS: Difere do Swarmpit, pois cobre também docker standalone, e o swarmpit somente swarm stack. Portainer é uma solução completa para trabalhar com container com GUI
+
+
+#baixar com curl o arquivo YAML stack do Portainer
+
+docker stack deploy -c portainer-agent-stack.yml portainer
+
+docker stack ls
+
+##################################################
+
+Harbor - maravilhoso registry
+
+Vide github do Harbor que tem tudo, como instalar, configurar, etc
+
+https://goharbor.io/docs/2.14.0/
+
+##################################################
+
+Docker Machine
+
+
+
+
+O docker-machine é uma ferramenta de linha de comando separada do binário principal do Docker (docker). Ele atua como um cliente que se comunica com o serviço do Docker (o Daemon) em uma máquina remota ou virtualizada.
+
+Quando você instala o docker-machine no seu computador (por exemplo, no Windows ou macOS antes do Docker Desktop ser popular, ou em qualquer Linux), você não precisa necessariamente ter o Docker Engine instalado na mesma máquina onde você está rodando o comando docker-machine.
+
+O Docker Machine é instalado para gerenciar a instalação do Docker em outros lugares.
+
+2. O objetivo do Docker Machine é criar máquinas virtuais em hypervisores?
+Exatamente. Esse é o seu principal objetivo.
+
+O Docker Engine (o serviço que roda os contêineres) é nativo do Linux. Para rodar o Docker em sistemas operacionais que não são Linux (como Windows e macOS), ou para gerenciar um host Docker em um servidor remoto, o Docker Machine foi criado para:
+
+Provisionar uma VM (Máquina Virtual) leve: Ele cria uma máquina virtual baseada em Linux (geralmente usando o projeto Boot2Docker ou TinyCore Linux) no seu hypervisor local (como VirtualBox, Hyper-V, etc.).
+
+Instalar o Docker Engine: Ele instala e configura o Docker Engine dentro dessa VM Linux.
+
+Configurar Variáveis de Ambiente: Ele configura automaticamente as variáveis de ambiente do seu terminal local (DOCKER_HOST, DOCKER_CERT_PATH, etc.) para que o cliente Docker no seu computador (o comando docker) passe a se comunicar com o Docker Engine que está rodando dentro daquela VM remota/virtualizada.
+
+
+
+
+
+#lista as VMs criadas
+docker-machine ls
+
+#cria uma vm no seu virtualbox com o docker instalado.
+docker-machine create --driver virtualbox nome-da-vm
+
+Gerenciando um vm host remota com docker machine (precisa de docker client para executar os comandos docker)
+
+# 1. Visualize as variáveis para o host que você deseja gerenciar
+docker-machine env meu-servidor-aws
+
+# 2. Execute o comando de "export" (ou "eval" no bash/zsh) para aplicá-las ao seu terminal atual - conecta na VM
+eval $(docker-machine env meu-servidor-aws)
+
+Apartir de agora todos os comandos são realizados na vm remota: Ex
+docker container ls  #vou verificar isso na vm remota
+
+
+
+
+
+#retorna o IP
+docker-machine ip nome-da-vm
+
+
+#para a vm 
+docker-machine stop nome-vm
+
+#iniciar
+docker-machine start nome-vm
+
+
+#desconectar da VM
+docker-machine env -u
+
+#limpo o ambiente - as variaveis de ambiente e desconecta da VM
+eval $(docker-machine env -u)
+
+docker-machine ls
+
+docker-machine inspect nome-da-vm | jq
+
+#remover
+docker-machine rm nome-vm (-y para não perguntar)
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Diferença IMPORTANTE!!!!
+
+Essa é uma ótima pergunta que toca no cerne da diferença entre o Docker Compose e o Docker Swarm.
+
+A principal diferença não está no nome do arquivo (docker-compose.yaml vs stack.yaml), mas sim na presença e na importância da cláusula deploy (e em algumas outras funcionalidades ignoradas).
+
+Esses arquivos YAML, independentemente do nome, seguem o Compose Specification (geralmente a versão 3.x para compatibilidade com Swarm).
+
+A Cláusula deploy: O Diferencial
+A chave que transforma um arquivo de "Compose local" em um "Stack para Swarm" é a seção opcional deploy dentro de cada serviço:
+
+Característica	Propósito	Exemplo de Opção
+deploy	Define como o serviço deve ser implantado no cluster Swarm.	replicas, update_config, resources, placement
+Uso	Obrigatório/Essencial para orquestração de produção no Swarm.	
+
+Exportar para as Planilhas
+Quando você executa:
+
+Bash
+
+docker stack deploy -c meu-arquivo.yml meu-projeto
+O Docker Swarm utiliza a cláusula deploy para configurar o balanceamento de carga, a escalabilidade, as regras de atualização e a alocação de recursos em todo o cluster.
+
+Quando você executa:
+
+Bash
+
+docker compose up -f meu-arquivo.yml
+O Docker Compose (local, em uma única máquina) ignora a cláusula deploy, pois essas configurações são específicas do orquestrador Swarm.
+
+Outras Diferenças e Funcionalidades Ignoradas
+Existem outras chaves que diferenciam os dois comandos:
+
+Chave	Uso com docker compose up (Local)	Uso com docker stack deploy (Swarm)
+build	Funciona: Cria a imagem localmente antes de iniciar o contêiner.	Ignorado: Stacks no Swarm exigem que você use imagens pré-construídas ou disponíveis em um Registry.
+depends_on	Funciona: Controla a ordem de inicialização dos contêineres.	Ignorado (na ordem de inicialização): No Swarm, o foco é na disponibilidade, não na ordem estrita de boot. Você deve usar retries ou healthchecks.
+external (em redes/volumes)	Funciona	Funciona
+
+
+
+
+
+
+---------------------------------- Outra OBSERVAÇÂO -----------------------------------------
+
+A capacidade de usar labels (rótulos) é uma funcionalidade fundamental no Docker e se aplica a praticamente todos os objetos, incluindo Containers e Imagens, assim como Nodes e Services no Swarm.
+
+A diferença principal é o propósito e o momento em que os labels são aplicados.
+
+Labels em Containers (e Imagens): Metadados para Organização e Automação
+Labels são pares de chave-valor (metadata) que você anexa a um objeto Docker. Eles não afetam o funcionamento do contêiner em si, mas são extremamente valiosos para ferramentas externas, para automação e para a organização humana.
+
+1. Como Aplicar Labels
+Os labels podem ser aplicados em dois momentos principais:
+
+Objeto	Onde Aplicar	Comando/Sintaxe
+Imagem (Mais Comum)	No Dockerfile	LABEL com.minhaempresa.projeto="frontend"
+Contêiner (Runtime)	Durante o docker run	docker run -d --label "ambiente=dev" nginx
+Service (Swarm)	No docker-compose.yml ou docker service create	labels: ["traefik.enable=true"]
+
+Exportar para as Planilhas
+2. Casos de Uso Mais Comuns para Labels em Containers/Imagens
+Enquanto os labels em Nodes e Services são focados em orquestração (como você mencionou, para controlar onde o deploy ocorre), os labels em Containers e Imagens são focados em identificação, rastreabilidade e integração com ferramentas de terceiros.
+
+Caso de Uso	Explicação	Exemplo de Label
+1. Rastreabilidade (Supply Chain)	Documentar informações de build e origem da imagem para fins de auditoria e segurança.	org.opencontainers.image.revision="git-sha1234"
+2. Filtragem e Organização	Categorizar contêineres e imagens para facilitar a gestão e a execução de comandos em lote.	projeto="ecommerce", equipe="devops"
+3. Integração com Proxies Reversos	O caso de uso mais popular. O proxy reverso (como Traefik ou NGINX Proxy Manager) lê os labels dos contêineres para se configurar automaticamente.	traefik.enable="true", traefik.http.routers.web.rule="Host(\exemplo.com`)"`
+
+Exportar para as Planilhas
+Exemplo Prático: Usando Traefik (Proxy Reverso)
+Este é o exemplo mais ilustrativo de como os labels controlam a funcionalidade de uma ferramenta externa:
+
+Você inicia um contêiner Nginx e, usando labels, diz ao Traefik para ativá-lo e para qual domínio ele deve responder.
+
+Bash
+
+docker run -d \
+  --name meu-webserver \
+  --network web-proxy \
+  --label "traefik.enable=true" \
+  --label "traefik.http.routers.meu-webserver.rule=Host(`myapp.meudominio.com`)" \
+  --label "traefik.http.routers.meu-webserver.entrypoint=websecure" \
+  nginx
+Neste caso, o Docker não faz nada com esses labels traefik.*, mas o proxy reverso Traefik os lê e imediatamente configura o roteamento para que o tráfego de myapp.meudominio.com seja enviado para este contêiner Nginx.
+
+Em resumo, enquanto os labels em Swarm Services/Nodes são para orquestração interna do Docker, os labels em Containers/Imagens são principalmente para documentação e integração com o ecossistema de ferramentas que orbitam o Docker.
+

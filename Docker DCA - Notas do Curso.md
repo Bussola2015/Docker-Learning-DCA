@@ -175,68 +175,362 @@ docker container start meu-container
 
 ## 🖼️ Imagens
 
-### Listar/Remover
+
+
+**Objetivo:** Dominar o ciclo completo de imagens — **listar, remover, investigar, construir, otimizar e distribuir** — com foco em **performance, segurança e boas práticas**.
+
+---
+
+### 🔍 Listar e Remover Imagens
+
+| Comando | Descrição | Exemplo |
+|--------|-----------|--------|
+| `docker image ls` | Lista todas | `docker images` (legado) |
+| `docker image ls -a` | Inclui intermediárias | - |
+| `docker image ls -f "dangling=true"` | **Imagens órfãs** (sem tag, sem uso) | - |
+| `docker image ls -q` | Apenas IDs | Útil em scripts |
+| `docker image rm <ID\|nome>` | Remove uma ou mais | `docker image rm nginx` |
+| `docker image rm -f $(docker image ls -aq)` | **Remove TODAS** | Cuidado! |
+| `docker image prune` | Remove **imagens não usadas** | - |
+| `docker image prune -a` | Remove **todas não referenciadas** | - |
+| `docker image prune -f` | Sem confirmação | - |
+| `docker image prune -a -f` | **Limpeza total** | - |
+
+**Dica:** Use `prune -a -f` entre labs para evitar bloat.
+
+---
+
+### ℹ️ Ajuda e Investigação
+
 ```bash
-docker image ls  # Ou `docker images`
-docker image ls -f "dangling=true"  # Órfãs
-docker image rm <ID\|nome> -f $(docker image ls -aq)  # Todos
-docker image prune -a -f
-docker image prune #todas imagens não utilizadas
-docker image rmi <nome ou ID>
+docker image --help
 ```
 
-### Ajuda/Help
+### **Inspeção Profunda**
 ```bash
-docker imagem --help
-```
+# Histórico de camadas (deduzir Dockerfile)
+docker image history prom/prometheus:main
 
-### Investigar/Buscar/Pull/Build
-```bash
-# History/Inspect
-docker image history <imagem>
-docker image inspect <imagem>
-docker image history prom/prometheus:main  # Camadas → Deduz Dockerfile
+# Metadados completos (JSON)
 docker image inspect prom/prometheus:main
 
-# Search
-docker search <imagem>
+# Filtrar campos específicos
+docker image inspect nginx | jq '.[0].Config.ExposedPorts'
+```
+
+---
+
+### 🔎 Buscar e Baixar
+
+```bash
+# Busca no Docker Hub
+docker search nginx
 docker search nginx --filter stars=100 --limit 5
+docker search --filter is-official=true nginx
 
-# Pull
-docker image pull <imagem>
+# Pull (baixa)
 docker image pull debian
+docker image pull nginx:alpine
+```
 
-# Build (Dockerfile no .)
+---
+
+### 🏗️ Build (Construção)
+
+### Sintaxe Básica
+```bash
+# Build no diretório atual
 docker image build -t echo-container .
+
+# Especificar Dockerfile e contexto
 docker image build -t echo-test:latest -f echo-container/Dockerfile .
 
-# Tag/Push
-docker image tag echo-container 545648841321245/echo-container:v1
-docker image push 545648841321245/echo-container:v1
-
-# No-cache/Timing
+# Sem cache + tempo
 time docker image build --no-cache -t exemplo:v2 -f path/Dockerfile context/
 ```
 
-### **Dockerfile Best Practices** (🔥 **Memorize**)
-1. **Ordem = Cache** (mude o que varia por último).
-2. **COPY < ADD** (ADD aceita URL, mas COPY é puro).
-3. **.dockerignore** → Evita bloat no contexto.
-4. **Agrupar cmds** → Menos layers.
-5. **Limpe cache**:
-   ```dockerfile
-   RUN apt update && apt install ... && rm -rf /var/lib/apt/lists/*
-   ```
-6. **Imagens mínimas:** `alpine`, `slim`, `distroless`.
-7. **Tags específicas:** `openjdk:8-jre-alpine`.
-8. **Multi-stage Builds** (sempre!).
+### **Contexto de Build**
+> Tudo na pasta do `Dockerfile` é enviado ao daemon → **use `.dockerignore`**.
 
-**Exemplo Multi-stage:**
-```dockerfile
-FROM golang AS builder ...
-FROM alpine
-COPY --from=builder /app /app
+```bash
+# .dockerignore (exemplo)
+__pycache__
+*.pyc
+.git
+node_modules
+.env
 ```
+
+---
+
+### 🏷️ Tag e Push
+
+```bash
+# Tag (local)
+docker image tag echo-container 545648841321245/echo-container:v1
+
+# Push para registry
+docker image push 545648841321245/echo-container:v1
+```
+
+---
+
+### 🔥 Dockerfile: Exemplos do Curso (Otimizados)
+
+### 1. **Echo Simples**
+```dockerfile
+FROM alpine
+ENTRYPOINT ["echo"]
+CMD ["--help"]
+```
+```bash
+docker build -t meu-echo .
+docker run meu-echo -n "Olá DCA!"
+```
+
+---
+
+### 2. **Busybox + COPY**
+```dockerfile
+FROM busybox
+COPY conteudo.txt /
+RUN cat /conteudo.txt
+```
+
+---
+
+### 3. **Apache (Debian)**
+```dockerfile
+FROM debian
+RUN apt-get update && \
+    apt-get install -y wget git apache2 && \
+    rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*
+EXPOSE 80
+CMD ["apachectl", "-D", "FOREGROUND"]
+```
+
+---
+
+### 4. **Java App (OpenJDK + Limpeza)**
+```dockerfile
+FROM openjdk:8-jre-alpine
+COPY java-wc-app/target/app.jar /app/app.jar
+COPY java-wc-app/samples /samples 
+ENTRYPOINT ["java", "-jar", "/app/app.jar"]
+```
+
+---
+
+### 5. **Multi-stage Simples**
+```dockerfile
+FROM alpine:latest AS dicas
+WORKDIR /samples
+COPY 1.txt .
+
+FROM alpine:latest
+WORKDIR /root/
+COPY --from=dicas /samples/1.txt .
+CMD ["cat", "1.txt"]
+```
+
+---
+
+### 6. **Go App (Sem Multi-stage)**
+```dockerfile
+FROM golang:1.7.3
+WORKDIR /go/src/github.com/alexellis/href-counter/
+RUN go get -d -v golang.org/x/net/html
+COPY app.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o app .
+CMD ["./app"]
+```
+
+---
+
+### 7. **Go App (Multi-stage Otimizado)**
+```dockerfile
+FROM golang:1.19 AS builder
+WORKDIR /go/src/github.com/alexellis/href-counter/
+COPY go.mod go.sum ./
+RUN go mod download
+COPY app.go .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o app
+
+FROM alpine:3.17.1
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /go/src/github.com/alexellis/href-counter/app .
+CMD ["./app"]
+```
+
+> **Melhorias aplicadas:** `go mod`, `-ldflags`, `alpine`, `ca-certificates`.
+
+---
+
+### 8. **Go App (Versão Final - Curso)**
+```dockerfile
+FROM golang:1.19 AS builder
+WORKDIR /go/src/github.com/alexellis/href-counter/
+COPY go.mod go.sum app.go ./
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags "-s -w" -o app
+
+FROM alpine
+RUN apk --no-cache add ca-certificates
+WORKDIR /root/
+COPY --from=builder /go/src/github.com/alexellis/href-counter/app .
+CMD ["./app"]
+```
+
+---
+
+## 🚀 Dockerfile Best Practices (Memorize!)
+
+| # | Regra | Por quê? |
+|---|-------|---------|
+| 1 | **Ordem importa (cache)** | Mude o que varia por último |
+| 2 | **`COPY` > `ADD`** | `ADD` aceita URL (risco) |
+| 3 | **`.dockerignore`** | Evita bloat no contexto |
+| 4 | **Agrupar `RUN`** | Menos camadas |
+| 5 | **Limpar cache** | `rm -rf /var/lib/apt/lists/*` |
+| 6 | **Imagens mínimas** | `alpine`, `slim`, `distroless` |
+| 7 | **Tags específicas** | `openjdk:8-jre-alpine` |
+| 8 | **Multi-stage** | Reduz tamanho final |
+| 9 | **`USER` não-root** | Segurança |
+| 10 | **`HEALTHCHECK`** | Monitoramento |
+
+---
+
+## 📌 `ENTRYPOINT` vs `CMD` — Guia Completo
+
+> Explicação detalhada com casos reais e boas práticas.
+
+---
+
+### 1. **Definições Básicas**
+
+| Comando | Descrição |
+|--------|-----------|
+| `CMD` | **Comando padrão** (sobrescrito facilmente) |
+| `ENTRYPOINT` | **Comando principal** (sempre executa) |
+
+---
+
+### 2. **Diferenças Principais**
+
+| Característica | `CMD` | `ENTRYPOINT` |
+|----------------|-------|--------------|
+| Sobrescrita | `docker run imagem novo-cmd` | `--entrypoint` |
+| Argumentos | Substituem | São **anexados** |
+| Uso comum | Ferramentas CLI | Aplicações |
+
+---
+
+### 3. **Formatos**
+
+#### **Exec (Recomendado)**
+```dockerfile
+CMD ["nginx", "-g", "daemon off;"]
+ENTRYPOINT ["python", "app.py"]
+```
+
+#### **Shell (Evite)**
+```dockerfile
+CMD nginx -g "daemon off;"
+```
+→ Shell é PID 1 → não recebe `SIGTERM`.
+
+---
+
+### 4. **Casos de Uso**
+
+#### **Caso 1: `CMD` Flexível**
+```dockerfile
+FROM nginx:alpine
+CMD ["nginx", "-g", "daemon off;"]
+```
+```bash
+docker run img echo "teste"  # → echo "teste"
+```
+
+#### **Caso 2: `ENTRYPOINT` Fixo**
+```dockerfile
+FROM python:3.9
+ENTRYPOINT ["python", "script.py"]
+```
+```bash
+docker run img --help  # → python script.py --help
+```
+
+#### **Caso 3: `ENTRYPOINT` + `CMD` (Ideal)**
+```dockerfile
+ENTRYPOINT ["node", "app.js"]
+CMD ["--port", "3000"]
+```
+```bash
+docker run app --port 8080  # → node app.js --port 8080
+```
+
+#### **Caso 4: Script de Entrada**
+```dockerfile
+COPY entrypoint.sh /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["start"]
+```
+```bash
+#!/bin/bash
+echo "Iniciando..."
+exec "$@"
+```
+
+---
+
+### 5. **Boas Práticas**
+
+| Regra | Exemplo |
+|------|--------|
+| Use **exec** | `["cmd", "arg"]` |
+| Combine `ENTRYPOINT` + `CMD` | Controle + flexibilidade |
+| Scripts? Use `exec "$@"` | Passa args corretamente |
+| Evite shell em processos longos | Use exec |
+
+---
+
+### 6. **Resumo Rápido**
+
+| Quer... | Use |
+|--------|-----|
+| Comando fixo | `ENTRYPOINT` |
+| Args padrão | `CMD` |
+| Ambos | `ENTRYPOINT` + `CMD` |
+| Flexibilidade | Só `CMD` |
+
+---
+
+**Dica Final:**  
+> `ENTRYPOINT` = **verbo principal**  
+> `CMD` = **argumentos padrão**
+
+---
+
+## 🧹 Limpeza Final
+
+```bash
+# Remove tudo não usado
+docker system prune -a --volumes -f
+```
+
+---
+
+**Próximos Passos:**
+- [ ] Testar todos os Dockerfiles
+- [ ] Adicionar `HEALTHCHECK`
+- [ ] Usar `distroless` em produção
+- [ ] Automatizar com CI/CD
+
+**Referências:**
+- [Docker Best Practices](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/)
+- [Multi-stage Builds](https://docs.docker.com/build/building/multi-stage/)
+
 
 ---
 
@@ -885,6 +1179,61 @@ volumes:
 networks:
   wp-net:
     driver: bridge
+```
+
+**docker-compose.yml: Versão Testada/Funcional/Comentada**
+```yaml
+#version: '3.8'     
+name: ProjWordpress  
+
+#docker volume create mysql_db (cria uma volume nomeado)
+volumes:
+  mysql_db:
+  wordpress:  
+
+# docker network create wordpress_net (crio uma rede bridge user defined - com resolucao nomes (DNS), on-fly desatacha ou atacha em running, etc)
+networks:
+  wordpress_net:
+
+services: 
+
+  #docker container run -it --name wordpress -p 80:80 -e WORDPRESS_DB_HOST=db -e WORDPRESS_DB_USER=wpuser -e WORDPRESS_DB_PASSWORD=12345678 -e WORDPRESS_DB_NAME=wordpress wordpress
+  wordpress:  
+    image: wordpress    
+    hostname: webserver 
+    ports: 
+      - 8080:80
+    restart: always 
+    environment:
+      WORDPRESS_DB_HOST: db
+      WORDPRESS_DB_USER: wpuser 
+      WORDPRESS_DB_PASSWORD: 12345678
+      WORDPRESS_DB_NAME: wordpress 
+    
+    networks:
+      - wordpress_net
+    depends_on:
+      - db
+
+    volumes:
+      - wordpress:/var/www/html    
+
+  #docker container run -it --hostname db -p 3306:3306 -v mysql_db:/var/lib/mysql -e MYSQL_DATABASE=wordpress -e MYSQL_USER=wpuser -e MYSQL_PASSWORD=cursdodockerdca -e MYSQL_RANDOM_ROOT_PASSWORD='1' mysql
+  db:
+    image: mysql:8.0
+    restart: always
+    volumes:
+      - mysql_db:/var/lib/mysql
+    #ports:
+    # - 3306:3306   #comentei o ports, pois wordpress e db estao na mesma rede - somente nome ja basta
+    environment:
+      MYSQL_DATABASE: wordpress 
+      MYSQL_USER: wpuser 
+      MYSQL_PASSWORD: 12345678 
+      MYSQL_RANDOM_ROOT_PASSWORD: '1' 
+
+    networks:
+      - wordpress_net
 ```
 
 ### Comandos
