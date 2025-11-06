@@ -3,7 +3,7 @@
 **Autor das Notas:** Valdir A Bussola Jr 
 
 **Curso:** [Docker DCA no YouTube](https://www.youtube.com/playlist?list=PL4ESbIHXST_TJ4TvoXezA0UssP1hYbP9_)  
-**Status:** Completo até a aula 15 (faltando Kubernetes).  
+**Status:** Completo até a aula 16 (faltando MKE).  
 **Objetivo:** Guia **passo a passo** para revisar comandos, exemplos, conceitos e observações.  
 **Dica Geral:** Sempre teste em ambiente lab (ex: VMs Vagrant). Use `docker system prune -a --volumes -f` para limpar tudo entre testes.
 
