@@ -21,6 +21,8 @@
 | 13 | Monitoring (Prometheus/Grafana) | [Monitoramento](#monitoramento) |
 | 14 | Tools (Swarmpit, Portainer, Harbor e Docker Machine) | [Tools](#tools-docker) |
 | 15 | Labels e Aplicações| [Labels](#Labels) |
+| 16 | Kubernetes | [Kubernetes](#Kubernetes) |
+| 17 | Docker MKE ou Docker EE | [MKE](#MKE) |
 
 **Linha de Raciocínio:**  
 1. **Fundamentos** (Login → Run → Inspect).  
@@ -397,6 +399,36 @@ CMD ["./app"]
 | 8 | **Multi-stage** | Reduz tamanho final |
 | 9 | **`USER` não-root** | Segurança |
 | 10 | **`HEALTHCHECK`** | Monitoramento |
+
+-----
+
+### 🛠️ Troubleshooting e Logs Detalhados do Build - Debug em Dockerfile
+
+O comando `docker build` (e o `docker compose build`) utiliza o BuildKit por padrão, que oferece uma saída limpa e otimizada (Modo TTY). No entanto, em caso de falhas, essa saída pode omitir logs cruciais.
+
+Para depuração detalhada (Troubleshooting), utilize a flag **`--progress=plain`**.
+
+### Uso: Logs Sequenciais e Completos
+
+A flag `--progress=plain` força o BuildKit a reverter para um estilo de saída **linear e não interativo**, garantindo que você visualize:
+
+1.  **Output Completo de `RUN`:** O log detalhado de cada comando `RUN` do seu `Dockerfile` é exibido por completo, o que é essencial para identificar pacotes que falharam na instalação ou erros de scripts.
+2.  **Saída Consistente:** Garante um log fácil de analisar em ambientes de CI/CD (Integração Contínua) que não suportam o modo TTY.
+
+### Exemplos Práticos:
+
+```bash
+# Para debug do build em um Dockerfile:
+docker build --progress=plain .
+
+# Para debug de um serviço específico no Docker Compose:
+docker compose build --progress=plain <nome-do-serviço>
+```
+
+### 🎯 Por Que Isso é Importante em Troubleshooting
+
+O principal desafio ao construir imagens Docker é depurar falhas que ocorrem durante o comando `RUN`. O modo padrão de progresso (`auto`/TTY) do BuildKit (o motor de build moderno do Docker) muitas vezes esconde o output detalhado de comandos que falharam ou foram cancelados, dificultando a identificação da linha exata que deu erro.
+
 
 ---
 
@@ -2742,3 +2774,611 @@ jobs:
 **Dica Final:** Adicione exemplos de saída (`docker inspect`) ao seu GitHub! 🚀
 
 ---
+
+## ☸️ Kubernetes (K8s)
+
+**Objetivo:** Introdução ao Kubernetes via Minikube (K8s in Docker). Foco em conceitos básicos: **pods (unidade mínima)**, redes, deployments, secrets/configmaps e persistência (PV/PVC) para o DCA (Docker Certified Associate).
+
+**Pré-requisitos:** Docker instalado. Teste em lab (ex: VM).  
+**Dica Geral:** Sempre use `kubectl apply` para criar/atualizar. `kubectl get all` para overview.  
+**Conceito Chave:** Docker → **Container** (mínimo deploy). K8s → **Pod** (1+ containers).  
+
+![Conceito de Pod](https://kubernetes.io/docs/tutorials/kubernetes-basics/public/images/module_03_pods.svg)  
+
+**Referência Inicial:** [Minikube Docs](https://minikube.sigs.k8s.io/docs/start/?arch=%2Flinux%2Fx86-64%2Fstable%2Fbinary+download).
+
+---
+
+## 🚀 Instalação e Início com Minikube
+
+### Instalar Minikube
+```bash
+curl -LO https://github.com/kubernetes/minikube/releases/latest/download/minikube-linux-amd64
+sudo install minikube-linux-amd64 /usr/local/bin/minikube && rm minikube-linux-amd64
+minikube version  # Verifique
+```
+
+### Iniciar Cluster (Driver Docker)
+```bash
+minikube start --driver=docker
+docker container ls  # Confirma container Minikube
+```
+
+### Kubectl Básico
+> **Sintaxe:** `kubectl + verbo + recurso + opções`.  
+> Verbos: `get`, `describe`, `create`, `apply`, `delete`, `patch`.  
+> Recursos: `nodes`, `pods`, `services`, `deployments`, `namespaces`.  
+
+```bash
+kubectl get nodes  # Nós do cluster
+kubectl get all  # Tudo (pods, services, etc.)
+```
+
+**Finalizar Lab:** `minikube delete` (limpa tudo).
+
+---
+
+## 🛡️ Pods (Simples e Multi-Containers)
+
+### YAML Essencial (Cláusulas Obrigatórias)
+| Cláusula | Função | Exemplo (Pod) |
+|----------|--------|---------------|
+| `apiVersion` | Versão da API | `v1` |
+| `kind` | Tipo de objeto | `Pod` |
+| `metadata` | Identificação (nome, labels) | `name: meu-pod` |
+| `spec` | Estado desejado (containers, volumes) | `containers: [...]` |
+
+### Exemplo 1: Pod Simples (`pod.yml`)
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.14.2
+    ports:
+    - containerPort: 80
+```
+Equivalente Docker: `docker run -d --name nginx -p 80:80 nginx:1.14.2`.
+
+```bash
+kubectl apply -f pod.yml
+kubectl get pods  # Status
+kubectl logs nginx  # Logs
+kubectl logs -f nginx  # Follow
+kubectl delete -f pod.yml  # Ou `pod/nginx`
+```
+
+### Exemplo 2: Pod com Comando (`demo.yml`)
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: demo
+spec:
+  containers:
+  - name: testpod
+    image: alpine:3.5
+    command: ["ping", "8.8.8.8"]
+```
+Equivalente Docker: `docker run -dit --name demo alpine:3.5 ping 8.8.8.8`.
+
+### Exemplo 3: Pod Multi-Containers (`multi-container.yml`)
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multi-container
+spec:
+  restartPolicy: Never
+  volumes:
+  - name: shared-data
+    emptyDir: {}
+  containers:
+  - name: nginx-container
+    image: nginx
+    volumeMounts:
+    - name: shared-data
+      mountPath: /usr/share/nginx/html
+  - name: debian-container
+    image: debian
+    volumeMounts:
+    - name: shared-data
+      mountPath: /pod-data
+    command: ["/bin/sh"]
+    args: ["-c", "echo Hello from the debian container > /pod-data/index.html && sleep 3600"]
+```
+> **OBS:** `command` sobrescreve `ENTRYPOINT` (Docker). `args` sobrescreve `CMD`.  
+> Conceito: **Sidecar** = Container auxiliar (ex: debian aqui).
+
+| Cenário | O que Executa | Uso |
+|---------|---------------|-----|
+| Sem `command/args` | ENTRYPOINT + CMD (Dockerfile) | Padrão |
+| `command` só | `command` + CMD (Dockerfile) | Sobrescreve entrypoint |
+| `args` só | ENTRYPOINT (Dockerfile) + `args` | Sobrescreve args |
+| Ambos | `command` + `args` | Sobrescreve tudo |
+
+```bash
+kubectl apply -f multi-container.yml
+kubectl get pods/all
+kubectl describe pod multi-container  # Eventos
+kubectl get pod multi-container -o yaml  # YAML completo
+kubectl logs multi-container -c nginx-container  # Especifica container
+kubectl exec -it multi-container -c nginx-container -- /bin/bash  # Entre
+kubectl delete -f multi-container.yml
+```
+
+![Pod Single vs Pod Multi - Containers](https://devopscube.com/content/images/2025/03/kubernetes-pod-1.png) 
+
+
+📝 **Alternativa Entrar Minikube:** `minikube ssh` (bash do host K8s).
+
+---
+
+## 🌐 Redes (Services: ClusterIP e NodePort)
+
+**Conceitos:**
+- **ClusterIP:** IP interno ao cluster (default). Acesso só dentro.
+- **NodePort:** Expõe em todos nodes (porta 30000-32767). Acesso externo.
+
+### Exemplo 4: Pod + Service ClusterIP (`nginx-pod.yml`)
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx
+  labels:
+    app: hello-world
+spec:
+  containers:
+  - name: nginx
+    image: nginx
+    ports:
+    - containerPort: 80
+```
+
+`nginx-svc.yml` (ClusterIP implícito):
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-dca
+spec:
+  selector:
+    app: hello-world
+  ports:
+  - port: 80
+    protocol: TCP
+```
+
+```bash
+kubectl apply -f nginx-pod.yml -f nginx-svc.yml
+kubectl get pods/all/services
+kubectl describe service nginx-dca
+# Teste interno (via container Minikube)
+docker exec -it minikube bash
+curl <IP_Service>:80  # Sucesso
+kubectl delete -f nginx-svc.yml
+```
+
+### Exemplo 5: NodePort (`nginx-svc-nodeport.yml`)
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx-dca
+spec:
+  type: NodePort
+  selector:
+    app: hello-world
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 80
+    nodePort: 30033  # Aleatório se omitido
+```
+
+```bash
+kubectl apply -f nginx-svc-nodeport.yml
+kubectl get services
+kubectl describe service nginx-dca
+# Teste interno (pod Alpine)
+kubectl run --rm -it alpine --image=alpine --restart=Never -- ash
+apk update && apk add curl  # Dentro
+curl nginx-dca:8080  # Sucesso
+exit
+# Teste externo
+minikube ip  # IP Minikube
+curl 192.168.XX.XX:30033  # Sucesso
+curl $(minikube ip):30033
+minikube service --url nginx-dca  # URL completa
+curl $(minikube service --url nginx-dca)
+kubectl delete service/nginx-dca pod/nginx
+```
+
+---
+
+## 💡 Observação: Diferença entre Portas em Kubernetes vs. Docker
+
+Ao migrar do Docker para o Kubernetes, a forma como as portas são expostas é a principal fonte de confusão. Lembre-se que o Kubernetes é **agnóstico** (não se importa) com o `EXPOSE` do Dockerfile.
+
+| Porta/Campo | Onde é Definida | Finalidade e Escopo |
+| :--- | :--- | :--- |
+| **Porta da Aplicação** | Código Fonte (`app.py`, `server.js`) | É a porta real que o processo da aplicação está ouvindo dentro do Container (ex: 3000, 8080). |
+| **`targetPort`** | Service YAML | **CHAVE K8S:** É a porta que o Service aponta no **Container**. **DEVE ser igual** à Porta da Aplicação. |
+| **`EXPOSE`** | Dockerfile | **Docker:** É apenas **documentação/metadado**. Não afeta a conectividade no Kubernetes. |
+| **`port`** | Service YAML | **Porta do Service (LAN/Interna):** É o endereço virtual que o Service expõe. Outros Pods se conectam usando este número (ex: `meu-service:80`). |
+| **`nodePort`** | Service YAML (Tipo NodePort) | **Porta de Acesso Externo (WAN/Node):** A porta estática aberta em **todos os Nodes** do cluster (intervalo padrão 30000-32767). É a forma mais básica de acesso externo. |
+
+### Fluxo de Tráfego Completo (NodePort)
+
+O caminho do tráfego demonstra a hierarquia:
+
+
+1.  **Acesso Externo (WAN/Internet)**:
+    * **Porta:** `nodePort` (30000-32767)
+    * **Caminho:** `IP do Node : NodePort`
+
+2.  **Endereço Interno (LAN/Service)**:
+    * **Porta:** `port` (A porta que o Service expõe internamente, ex: 80)
+    * **Caminho:** `ClusterIP : Port`
+
+3.  **Destino Final (Aplicação)**:
+    * **Porta:** `targetPort` (A porta da aplicação real no Container, ex: 8080)
+    * **Caminho:** `Container : TargetPort`
+
+**Caminho Completo (Markdown Simples):**
+`WAN` ➔ `[IP do Node : NodePort]` ➔ `[ClusterIP : Port]` ➔ `[Container : TargetPort]`
+
+
+### 🌐 Comparativo de Controladores: Kubernetes vs. Docker Swarm
+
+| Objeto Kubernetes | Função Principal (K8s) | Equivalente Docker Swarm | Observações Chave (Analogia) |
+| :--- | :--- | :--- | :--- |
+| **Deployment** | Gerencia réplicas e o ciclo de vida (rollouts) de Pods **Stateless** (sem estado). | **Service (Modo Replicated)** | É o controlador mais comum para **escalabilidade** de aplicações web e microsserviços. |
+| **ReplicaSet** | Garante o número exato (`N`) de Pods rodando. Geralmente é gerenciado pelo Deployment. | **Service (Modo Replicated)** | O ReplicaSet é a "ferramenta de contagem" que o Deployment usa para manter o número de réplicas. |
+| **DaemonSet** | Garante que **exatamente um Pod** seja executado em **todos os Nodes** elegíveis do cluster. | **Service (Modo Global)** | Usado para agentes de logs, monitoramento e segurança. O Pod não tem nome persistente. |
+| **StatefulSet** | Gerencia réplicas com **identidade estável** (nome de rede e volume/armazenamento persistente) e ordem garantida. | **NÃO há Equivalente Direto** | Usado para bancos de dados e sistemas distribuídos. É o controlador para aplicações **Stateful** (com estado). |
+
+
+---
+
+## 📦 Deployments (Escala e Resiliência)
+
+### Exemplo 6: Deployment Nginx (`nginx-deploy.yml`)
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-deployment
+  labels:
+    app: nginx-dca
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nginx-dca
+  template:
+    metadata:
+      labels:
+        app: nginx-dca
+    spec:
+      containers:
+      - name: nginx-dca
+        image: nginx
+        ports:
+        - containerPort: 80
+```
+
+```bash
+kubectl apply -f nginx-deploy.yml
+kubectl get deployments/all
+kubectl describe deployment nginx-deployment
+# Teste resiliência (2 terminais)
+watch kubectl get all -l app=nginx-dca  # Terminal 1
+kubectl delete pod -l app=nginx-dca  # Terminal 2 (recria!)
+kubectl delete -f nginx-deploy.yml
+```
+
+Com certeza! Essa regra é fundamental e merece ser destacada.
+
+Aqui está um bloco de resumo e boas práticas em Markdown sobre a relação entre `Deployment`, `Spec`, `Selector` e `Template`:
+
+---
+
+## 📌 Regra de Ouro: Deployment como Unidade Lógica
+
+A melhor prática no Kubernetes é tratar o `Deployment` e seus componentes internos como uma **unidade indivisível** que representa um único componente (ou Microsserviço) da sua aplicação.
+
+### 1. Um Deployment para Cada Componente Lógico
+
+| Objeto | Regra Prática | Consequência |
+| :--- | :--- | :--- |
+| **Deployment YAML** | Deve ser criado **um arquivo de Deployment** para **cada unidade funcional** da sua aplicação (ex: um para o Frontend, um para o Serviço de Usuários, etc.). | Garante o isolamento do **rollout** (a atualização de um serviço não afeta o outro). |
+
+### 2. A Tríade Essencial (`Selector` ↔ `Template`)
+
+A relação entre o seletor e o template é o **vínculo vital** para que o Deployment funcione:
+
+* **`spec.selector.matchLabels`**: O **critério de busca** do Deployment (O QUE ele procura gerenciar).
+* **`template.metadata.labels`**: O **crachá de identidade** do Pod (O QUE ele é).
+
+> ✅ **Regra:** O `selector` **DEVE** corresponder ao `template.labels`. Se não corresponderem, o Deployment não consegue gerenciar os Pods que ele mesmo cria.
+
+### 3. O `Template` é o Contrato
+
+O bloco `template` é o contrato que define o Pod. Qualquer alteração neste bloco (imagem, variáveis de ambiente, volumes) é interpretada pelo Deployment como uma necessidade de **rollout** (atualização gradual) para substituir os Pods antigos pelos novos.
+
+| Campo | Função | Ação do Deployment |
+| :--- | :--- | :--- |
+| `spec.replicas` | Controla o número de Pods. | Causa **Escala** (aumentar/diminuir). |
+| `spec.template` | Controla o conteúdo do Pod. | Causa **Rollout** (substituição gradual). |
+
+---
+
+Este resumo deve ser um ótimo ponto de referência para a sua seção de redes e arquitetura K8s!
+
+---
+
+Com certeza! O conceito de **Rollout** é fundamental para entender a alta disponibilidade no Kubernetes.
+
+Aqui está um resumo focado no Gerenciamento de Rollout, perfeito para a sua documentação:
+
+---
+
+## 🚀 Gerenciamento de Rollout: Atualização sem Downtime
+
+O **Rollout** é o processo de atualização de uma aplicação em execução para uma nova versão, gerenciado pelo **Deployment**. O objetivo é realizar a transição com a máxima disponibilidade e segurança.
+
+### 1. O Gatilho do Rollout
+
+Um rollout é acionado quando há uma **alteração funcional** no bloco **`spec.template`** de um Deployment. O Kubernetes percebe que o "blueprint" (o modelo do Pod) mudou e inicia a substituição.
+
+| Gatilho do Rollout | Ação |
+| :--- | :--- |
+| **Imagem do Container** | Mudar de `app:v1` para `app:v2`. |
+| **Variáveis de Ambiente** | Adicionar, remover ou alterar uma variável. |
+| **Volumes/ConfigMaps** | Alterar a montagem de um volume ou ConfigMap/Secret referenciado. |
+
+> ⚠️ **Atenção:** Mudar apenas o campo `replicas` causa uma **escala**, mas **NÃO** um rollout.
+
+### 2. Estratégia Padrão: RollingUpdate
+
+A estratégia padrão e mais segura é o `RollingUpdate` (Atualização Contínua), que garante que o serviço permaneça acessível durante a transição.
+
+| Parâmetro | Descrição | Exemplo Padrão |
+| :--- | :--- | :--- |
+| **`maxUnavailable`** | Número (ou porcentagem) máximo de Pods que podem estar **indisponíveis** (desligados ou não prontos) durante a atualização. | `25%` |
+| **`maxSurge`** | Número (ou porcentagem) máximo de Pods **além** da contagem desejada que o Kubernetes pode criar para acomodar os novos. | `25%` |
+
+> **Exemplo:** Em um Deployment com 4 réplicas, o `RollingUpdate` fará:
+> 1. Cria 1 Pod novo (`maxSurge` 25% → 1 Pod). Total: 5 Pods.
+> 2. Derruba 1 Pod antigo (`maxUnavailable` 25% → 1 Pod). Total: 4 Pods.
+> 3. Repete até que todos os Pods sejam da nova versão.
+
+### 3. Gerenciamento e Controle
+
+Os comandos `kubectl rollout` são essenciais para monitorar e intervir no processo:
+
+| Comando | Função | Exemplo |
+| :--- | :--- | :--- |
+| `kubectl rollout status` | Acompanha o progresso da atualização em tempo real. | `kubectl rollout status deployment/meu-app` |
+| `kubectl rollout history` | Lista todas as revisões (versões) do Deployment, incluindo o que mudou em cada uma. | `kubectl rollout history deployment/meu-app` |
+| `kubectl rollout undo` | **Reverte instantaneamente** a aplicação para a versão anterior (o rollback). | `kubectl rollout undo deployment/meu-app` |
+| `kubectl rollout pause` | Interrompe um rollout em andamento para inspeção. | `kubectl rollout pause deployment/meu-app` |
+
+---
+## 🔑 Secrets e ConfigMaps
+
+**Conceitos:**
+- **ConfigMap:** Dados não-sensíveis (configs, envs).
+- **Secret:** Dados sensíveis (base64, senhas). Uso: Env ou volumes.
+
+### Exemplo 7: ConfigMap (`configmap.yml`)
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: configmap-app1
+data:
+  initial_refresh_value: "4"
+  ui_properties_file_name: "user-interface.properties"
+  user-interface.properties: |
+    color.good=green
+    color.bad=red
+```
+
+`pod-configmap.yml` (consumir):
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app1
+spec:
+  containers:
+  - name: app1
+    image: alpine
+    command: ["ping", "8.8.8.8"]
+    volumeMounts:
+    - name: configs
+      mountPath: "/etc/configs"
+      readOnly: true
+  volumes:
+    - name: configs
+      configMap:
+        name: configmap-app1
+```
+
+```bash
+kubectl apply -f configmap.yml -f pod-configmap.yml
+kubectl get configmap/pods
+kubectl describe configmap configmap-app1
+kubectl exec -it app1 -- ash
+ls /etc/configs; cat /etc/configs/initial_refresh_value  # Dentro
+kubectl delete pod/app1
+```
+
+### Exemplo 8: Secret (`secret.yml`)
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: senha-mysql
+type: kubernetes.io/basic-auth
+stringData:
+  username: root
+  password: 123mudar
+```
+
+`pod-secret.yml` (consumir):
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: mysql-db
+spec:
+  containers:
+  - name: mysql-db
+    image: mysql
+    env:
+    - name: MYSQL_ROOT_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: senha-mysql
+          key: password
+```
+
+```bash
+kubectl apply -f secret.yml -f pod-secret.yml
+kubectl get secrets/pods
+kubectl describe secret senha-mysql pod/mysql-db
+kubectl exec -it mysql-db -- mysql -u root -p123mudar  # Teste
+kubectl delete pod/mysql-db
+```
+
+---
+
+## 💽 Persistência (PV e PVC)
+
+**Conceitos:**
+- **PV (PersistentVolume):** Disco virtual ligado ao storage físico.
+- **PVC (PersistentVolumeClaim):** Requisição de storage (liga ao PV menor que atende).
+- **Modos:** RWO (1 node RW), ROX (muitos RO), RWX (muitos RW), RWOP (1 pod RW).  
+> **OBS:** PVC escolhe PV mínimo satisfatório.
+
+![PV vs PVC](https://support.huaweicloud.com/intl/en-us/basics-cce/en-us_image_0261235726.png) 
+
+![POD](https://www.cloudzero.com/wp-content/uploads/2023/10/kubernetes-nodes.webp) 
+
+### Exemplo 9: PVs (`pv.yml`)
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv10m
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 10Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/dados1"
+---
+# pv200m e pv1g semelhantes...
+```
+
+```bash
+kubectl apply -f pv.yml
+kubectl get pv
+```
+
+### Exemplo 10: PVCs (`pvc.yml`)
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc100m
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+---
+# pvc700m semelhante...
+```
+
+```bash
+kubectl apply -f pvc.yml
+kubectl get pvc  # Bound: pvc100m → pv200m, pvc700m → pv1g
+```
+
+### Exemplo 11: Pod com PVC (`webserver.yml`)
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webserver
+spec:
+  volumes:
+    - name: webdata
+      persistentVolumeClaim: 
+        claimName: pvc100m
+  containers:
+    - name: webserver
+      image: nginx
+      ports:
+        - containerPort: 80
+          name: "http-server"
+      volumeMounts:
+        - mountPath: "/usr/share/nginx/html"
+          name: webdata
+```
+
+> Fluxo: Pod → PVC → PV.
+
+```bash
+kubectl apply -f webserver.yml
+kubectl get pods
+kubectl exec -it webserver -- bash  # curl localhost
+kubectl delete pod/webserver
+```
+
+---
+
+## 🛑 Finalizando e Próximos Passos
+
+```bash
+minikube delete  # Limpa cluster
+```
+
+**OBS:** Para enterprise: Docker EE (legado) ou MKE (Mirantis Kubernetes Engine, moderno). Estude Helm para charts reutilizáveis.  
+**Próximos:** HPA (autoscaling), Ingress (exposição externa), RBAC (segurança).  
+
+**Capítulo K8s: Completo com foco em basics. Teste iterativamente!**
+
+
+## ☸️ Mirantis Kubernetes Engine (MKE) - O Legado Docker EE
+
+
+### 🛠️ Requisitos de Hardware para Docker Swarm
+
+A arquitetura do Docker Swarm exige que os nós Manager e Worker tenham especificações distintas para garantir a estabilidade do plano de controle e a performance da execução das tarefas.
+
+* **Requisitos Mínimos (Testes e Desenvolvimento):**
+    * **Manager Node:** Mínimo de **8GB de RAM** e **2 vCPUs**. Esta configuração é crucial, pois o Manager lida com o plano de controle, o consenso Raft e a orquestração.
+    * **Worker Nodes:** Mínimo de **4GB de RAM** e **2 vCPUs** (para cargas de trabalho leves).
+    * **Disco:** Pelo menos **25 GB** de espaço em disco no Manager para armazenamento de dados do estado do Swarm (Raft log).
+
+* **Requisitos de Produção (Recomendados):**
+    * Para ambientes de produção, a escalabilidade e a redundância são prioridades.
+    * **Manager Node:** Recomenda-se um aumento para **16GB de RAM** e **4 vCPUs** para lidar com picos de orquestração e maior tráfego do plano de controle.
+    * **Disco:** Utilize **SSD** (Solid State Drive) com espaço entre **25 GB a 100 GB** para garantir baixa latência na leitura e escrita do estado do cluster. O desempenho do disco no Manager é vital para a saúde do Swarm.
+
+### Precisa terminar ...
