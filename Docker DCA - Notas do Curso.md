@@ -1,6 +1,6 @@
 # Docker DCA - Notas do Curso (Caio Delgado)
 
-**Autor das Notas:** [Valdir/https://github.com/Bussola2015]  
+**Autor das Notas:** [Valdir]  
 **Curso:** [Docker DCA no YouTube](https://www.youtube.com/playlist?list=PL4ESbIHXST_TJ4TvoXezA0UssP1hYbP9_)  
 **Status:** Completo até a aula 15 (faltando Kubernetes).  
 **Objetivo:** Guia **passo a passo** para revisar comandos, exemplos, conceitos e observações.  
